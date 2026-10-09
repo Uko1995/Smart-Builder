@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-mist text-ink antialiased;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tide;
+}
+
+.panel {
+  @apply rounded-2xl border border-line bg-white shadow-card;
+}
+
+.num {
+  @apply font-mono tabular-nums;
+}

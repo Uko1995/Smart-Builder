@@ -1,0 +1,34 @@
+# Free web service for the API. Postgres is external (Neon or local).
+# Render free instances sleep, use ephemeral disk, and are tight on memory.
+# If the process is killed on import, run the API locally instead.
+services:
+  - type: web
+    name: soccer-prediction-lab-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: ALLOW_SYNTHETIC
+        value: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: API_FOOTBALL_KEY
+        sync: false
+      - key: ODDS_API_KEY
+        sync: false
+      - key: FOOTBALL_DATA_API_KEY
+        sync: false
