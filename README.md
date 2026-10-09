@@ -15,7 +15,7 @@ The application does not place bets, log in to bookmakers, or scrape bookmaker w
 - Manual CSV import and an opt-in synthetic demonstration seed.
 - Provider adapters for API-Football, football-data.org, and The Odds API. They stay idle until you add keys.
 
-The Next.js dashboard is the next slice. Until it lands, use the API and the local CLI.
+The Next.js dashboard is in `frontend/`. It signs in through the API, keeps the session cookie on the server, and reads stored fixtures, probabilities, and slips.
 
 ## Local setup without Docker
 
@@ -38,6 +38,16 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Open `http://127.0.0.1:8000/docs` and `http://127.0.0.1:8000/health`.
+
+In another shell, start the dashboard:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:3000` and sign in with `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. Generate predictions from the overview. The button does nothing on a schedule.
 
 Docker Compose can start only the database:
 
@@ -66,3 +76,24 @@ From the repository root, with the virtualenv active and `soccer_prediction_lab_
 ```
 
 The suite creates the test database schema itself when `DATABASE_URL` points at a database your user can migrate. `scripts/test-backend.sh` points pytest at the local test database.
+
+Frontend checks, from `frontend/`:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+```
+
+## Documentation
+
+- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Data sources](docs/DATA_SOURCES.md)
+- [Market coverage](docs/MARKET_COVERAGE.md)
+- [Model methodology](docs/MODEL_METHODOLOGY.md)
+- [Slip optimization](docs/SLIP_OPTIMIZATION.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Environment variables](docs/ENVIRONMENT_VARIABLES.md)
+- [Testing](docs/TESTING.md)
+- [Roadmap](docs/ROADMAP.md)

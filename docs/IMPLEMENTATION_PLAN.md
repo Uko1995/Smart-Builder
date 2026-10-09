@@ -8,7 +8,7 @@ The repository contained only an MIT license and an initial commit. There was no
 
 Chosen stack:
 
-- Next.js App Router, TypeScript, and Tailwind for the dashboard. Not started in the first commit.
+- Next.js App Router, TypeScript, and Tailwind for the dashboard. The dashboard reads the API through a server proxy.
 - FastAPI and Pydantic for the API.
 - SQLAlchemy and Alembic as the only schema owner. Prisma is not used.
 - PostgreSQL. Local development uses a normal Postgres install or Docker Compose. The documented hosted target is Neon’s free plan, subject to its quotas.
@@ -55,21 +55,21 @@ Status: implemented.
 
 ### Phase 5 — Dashboard
 
-Status: not started.
+Status: implemented.
 
 - Daily overview, market explorer, match analysis, slip lab, bookmaker preparation, performance, and settings.
-- Acceptance: an authenticated user can generate a run, read its status, and export a slip without opening the database.
+- Acceptance: an authenticated user can generate a run, read its status, and export a slip without opening the database. Frontend unit tests cover formatting, run labels, and slip rendering. A full signed-in browser pass still depends on a running API.
 
 ### Phase 6 — Free-tier deployment
 
-Status: not started. Limits checked on 2026-10-09 are recorded in the deployment notes once that phase is written.
+Status: documented. `render.yaml` describes a free Python web service. Hosted accounts were not created from this environment.
 
 - Vercel Hobby for the frontend, a free Python host or local FastAPI for the API, Neon free Postgres.
-- Render’s free web service sleeps after 15 minutes and has 512 MB RAM. Heavy fitting stays on the local CLI if that limit is too small.
+- Limits checked on 2026-10-09 are in `docs/DEPLOYMENT.md`. Render’s free web service sleeps and has 512 MB RAM. Heavy fitting stays on the local CLI if that limit is too small.
 
 ### Phase 7 — Roadmap only
 
-Automatic scheduling, workers, player props, bet builders, lineup feeds, and paid odds feeds stay documented and unimplemented.
+Automatic scheduling, workers, player props, bet builders, lineup feeds, and paid odds feeds are listed in `docs/ROADMAP.md` and are not implemented.
 
 ## Complexity
 
