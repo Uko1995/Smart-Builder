@@ -1,0 +1,198 @@
+/**
+ * Bulk storage for football-data.co.uk matches. Rows are upserted on
+ * (provider, external_id), so re-running an import or a refresh updates
+ * scores and statistics instead of duplicating fixtures.
+ */
+
+import type { Settings } from "@/server/config";
+import type { Db } from "@/server/db/client";
+import {
+  currentSeasonStart,
+  fetchHistory,
+  fetchUpcoming,
+  PROVIDER_KEY,
+  selectedLeagues,
+  toDay,
+  type CoukFile,
+  type CoukMatch,
+} from "@/server/providers/couk";
+import { normalizeTeamName } from "@/server/providers/names";
+import { getProviderId, seedReference } from "@/server/services/reference";
+
+const STALE_SCHEDULED_DAYS = 7;
+const CHUNK = 1000;
+
+export class CoukStore {
+  private leagues = new Map<string, number>();
+  private seasons = new Map<string, number>();
+  private latestSeason = new Map<number, number>();
+  private teams = new Map<string, number>();
+
+  private constructor(
+    private db: Db,
+    public providerId: number,
+  ) {}
+
+  static async open(db: Db): Promise<CoukStore> {
+    const store = new CoukStore(db, await getProviderId(db, PROVIDER_KEY));
+    for (const row of await db<{ id: number; external_id: string }[]>`SELECT id, external_id FROM leagues WHERE provider_id = ${store.providerId}`) {
+      store.leagues.set(row.external_id, row.id);
+    }
+    const leagueIds = [...store.leagues.values()];
+    if (leagueIds.length) {
+      for (const row of await db<{ id: number; league_id: number; name: string }[]>`
+        SELECT id, league_id, name FROM seasons WHERE league_id IN ${db(leagueIds)}`) {
+        store.seasons.set(`${row.league_id}|${row.name}`, row.id);
+        if (row.id > (store.latestSeason.get(row.league_id) ?? 0)) store.latestSeason.set(row.league_id, row.id);
+      }
+    }
+    for (const row of await db<{ id: number; external_id: string }[]>`SELECT id, external_id FROM teams WHERE provider_id = ${store.providerId}`) {
+      store.teams.set(row.external_id, row.id);
+    }
+    return store;
+  }
+
+  private async league(match: CoukMatch): Promise<number> {
+    const item = match.fixture;
+    const existing = this.leagues.get(item.leagueExternalId);
+    if (existing !== undefined) return existing;
+    const [row] = await this.db<{ id: number }[]>`
+      INSERT INTO leagues (provider_id, external_id, name, country, data_origin)
+      VALUES (${this.providerId}, ${item.leagueExternalId}, ${item.leagueName}, ${item.country}, 'provider')
+      ON CONFLICT ON CONSTRAINT uq_league_external DO UPDATE SET name = EXCLUDED.name
+      RETURNING id`;
+    this.leagues.set(item.leagueExternalId, row.id);
+    return row.id;
+  }
+
+  private async season(leagueId: number, rawName: string): Promise<number> {
+    let name = rawName;
+    if (!name) {
+      const latest = this.latestSeason.get(leagueId);
+      if (latest !== undefined) return latest;
+      name = String(new Date().getUTCFullYear());
+    }
+    const key = `${leagueId}|${name}`;
+    const existing = this.seasons.get(key);
+    if (existing !== undefined) return existing;
+    const [row] = await this.db<{ id: number }[]>`
+      INSERT INTO seasons (league_id, name) VALUES (${leagueId}, ${name})
+      ON CONFLICT ON CONSTRAINT uq_season_name DO UPDATE SET name = EXCLUDED.name
+      RETURNING id`;
+    this.seasons.set(key, row.id);
+    if (row.id > (this.latestSeason.get(leagueId) ?? 0)) this.latestSeason.set(leagueId, row.id);
+    return row.id;
+  }
+
+  private async team(externalId: string, name: string): Promise<number> {
+    const existing = this.teams.get(externalId);
+    if (existing !== undefined) return existing;
+    const [row] = await this.db<{ id: number }[]>`
+      INSERT INTO teams (provider_id, external_id, name, normalized_name, data_origin)
+      VALUES (${this.providerId}, ${externalId}, ${name}, ${normalizeTeamName(name)}, 'provider')
+      ON CONFLICT ON CONSTRAINT uq_team_external DO UPDATE SET name = teams.name
+      RETURNING id`;
+    this.teams.set(externalId, row.id);
+    return row.id;
+  }
+
+  async store(matches: CoukMatch[], source: string): Promise<number> {
+    if (!matches.length) return 0;
+    const rows: Record<string, unknown>[] = [];
+    const statsByKey = new Map<string, NonNullable<CoukMatch["stats"]>>();
+    const seen = new Set<string>();
+    for (const match of matches) {
+      const item = match.fixture;
+      if (seen.has(item.externalId)) continue;
+      seen.add(item.externalId);
+      const leagueId = await this.league(match);
+      rows.push({
+        provider_id: this.providerId,
+        external_id: item.externalId,
+        league_id: leagueId,
+        season_id: await this.season(leagueId, item.seasonName),
+        home_team_id: await this.team(item.homeExternalId, item.homeName),
+        away_team_id: await this.team(item.awayExternalId, item.awayName),
+        kickoff_at: item.kickoff,
+        status: item.status,
+        home_goals: item.homeGoals,
+        away_goals: item.awayGoals,
+        ht_home_goals: item.htHomeGoals,
+        ht_away_goals: item.htAwayGoals,
+        data_origin: "provider",
+        provenance: JSON.stringify({ provider: PROVIDER_KEY, file: source }),
+      });
+      if (match.stats) statsByKey.set(item.externalId, match.stats);
+    }
+    const ids = new Map<string, number>();
+    for (let start = 0; start < rows.length; start += CHUNK) {
+      const chunk = rows.slice(start, start + CHUNK);
+      const returned = await this.db<{ id: number; external_id: string }[]>`
+        INSERT INTO fixtures ${this.db(chunk as never)}
+        ON CONFLICT ON CONSTRAINT uq_fixture_external DO UPDATE SET
+          kickoff_at = EXCLUDED.kickoff_at,
+          -- A completed result is never turned back into a scheduled fixture.
+          status = CASE WHEN fixtures.status = 'completed' AND EXCLUDED.status = 'scheduled' THEN fixtures.status ELSE EXCLUDED.status END,
+          home_goals = COALESCE(EXCLUDED.home_goals, fixtures.home_goals),
+          away_goals = COALESCE(EXCLUDED.away_goals, fixtures.away_goals),
+          ht_home_goals = COALESCE(EXCLUDED.ht_home_goals, fixtures.ht_home_goals),
+          ht_away_goals = COALESCE(EXCLUDED.ht_away_goals, fixtures.ht_away_goals),
+          updated_at = now()
+        RETURNING id, external_id`;
+      for (const row of returned) ids.set(row.external_id, row.id);
+    }
+    const statsRows = [...statsByKey]
+      .filter(([key]) => ids.has(key))
+      .map(([key, values]) => ({ fixture_id: ids.get(key) as number, source: PROVIDER_KEY, captured_at: new Date(), ...values }));
+    for (let start = 0; start < statsRows.length; start += CHUNK) {
+      const chunk = statsRows.slice(start, start + CHUNK);
+      await this.db`
+        INSERT INTO match_statistics ${this.db(chunk as never)}
+        ON CONFLICT (fixture_id) DO UPDATE SET
+          home_corners = EXCLUDED.home_corners, away_corners = EXCLUDED.away_corners,
+          home_cards = EXCLUDED.home_cards, away_cards = EXCLUDED.away_cards,
+          home_shots = EXCLUDED.home_shots, away_shots = EXCLUDED.away_shots,
+          home_shots_on_target = EXCLUDED.home_shots_on_target, away_shots_on_target = EXCLUDED.away_shots_on_target,
+          source = EXCLUDED.source, captured_at = EXCLUDED.captured_at`;
+    }
+    return rows.length;
+  }
+}
+
+async function storeFiles(files: AsyncGenerator<CoukFile>, store: CoukStore): Promise<number> {
+  let written = 0;
+  for await (const file of files) written += await store.store(file.matches, file.label);
+  return written;
+}
+
+async function expireStale(db: Db, providerId: number): Promise<number> {
+  const result = await db`
+    UPDATE fixtures SET status = 'unknown', updated_at = now()
+    WHERE provider_id = ${providerId} AND status = 'scheduled'
+      AND kickoff_at < now() - make_interval(days => ${STALE_SCHEDULED_DAYS})`;
+  return result.count;
+}
+
+export async function importHistory(db: Db, settings: Settings, seasons: number, progress?: (label: string, found: boolean) => void) {
+  await seedReference(db, settings);
+  const [main, extra] = selectedLeagues(settings.footballDataCoUkLeagues);
+  const last = currentSeasonStart(new Date());
+  const first = last - Math.max(1, seasons) + 1;
+  const store = await CoukStore.open(db);
+  let written = await storeFiles(fetchHistory(main, extra, first, last, null, progress), store);
+  written += await storeFiles(fetchUpcoming(main, extra), store);
+  const expired = await expireStale(db, store.providerId);
+  return { rows: written, first_season: `${first}/${first + 1}`, leagues: main.length + extra.length, expired };
+}
+
+/** Fetch the current season and upcoming fixtures. */
+export async function refreshRecent(db: Db, settings: Settings, since: Date): Promise<[number, Record<string, unknown>]> {
+  const [main, extra] = selectedLeagues(settings.footballDataCoUkLeagues);
+  const season = currentSeasonStart(new Date());
+  const first = Math.min(season, currentSeasonStart(since));
+  const store = await CoukStore.open(db);
+  let written = await storeFiles(fetchHistory(main, extra, first, season, toDay(since)), store);
+  written += await storeFiles(fetchUpcoming(main, extra), store);
+  const expired = await expireStale(db, store.providerId);
+  return [written, { expired_scheduled: expired, leagues: main.length + extra.length }];
+}

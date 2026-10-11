@@ -46,7 +46,7 @@ export function runStatusLabel(status: string | null | undefined): { label: stri
     case "running":
       return { label: "Run in progress", tone: "running", detail: "The result is not ready until the stored status changes." };
     case "succeeded":
-      return { label: "Completed", tone: "ok", detail: "Predictions and qualifying slips were stored." };
+      return { label: "Completed", tone: "ok", detail: "Predictions were stored. Picks are ranked from priced markets." };
     case "succeeded_with_warnings":
       return { label: "Completed with warnings", tone: "warn", detail: "A result was stored, and some markets or samples need attention." };
     case "failed":
@@ -54,7 +54,7 @@ export function runStatusLabel(status: string | null | undefined): { label: stri
     case "insufficient_data":
       return { label: "Insufficient data", tone: "muted", detail: "The available history was not enough to estimate the fixtures." };
     case "no_qualifying_slips":
-      return { label: "No qualifying slips", tone: "warn", detail: "Predictions may exist, but no slip met the odds and quality rules." };
+      return { label: "Older accumulator run", tone: "warn", detail: "This stored run was built for slips. Generate again to rank daily picks." };
     default:
       return { label: "No run yet", tone: "idle", detail: "Generate predictions when you want a stored result for this date." };
   }

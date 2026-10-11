@@ -1,6 +1,6 @@
 # Market coverage
 
-Canonical markets live in `backend/app/markets/registry.py`. Implementation status describes the model. Bookmaker mapping is separate.
+Canonical markets live in `frontend/server/markets/registry.ts`. Implementation status describes the model. Bookmaker mapping is separate.
 
 ## Supported from the full-time scoreline
 

@@ -1,1 +1,0 @@
-"""Canonical market registry."""

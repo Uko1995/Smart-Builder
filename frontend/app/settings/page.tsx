@@ -11,14 +11,9 @@ import { useQuery } from "@/lib/use-query";
 
 const EDITABLE = [
   ["odds_freshness_minutes", "Odds freshness (minutes)"],
-  ["min_probability_a", "Strategy A minimum probability"],
-  ["min_probability_b", "Strategy B minimum probability"],
-  ["min_probability_c", "Strategy C minimum probability"],
+  ["min_pick_probability", "Minimum pick probability"],
   ["min_data_quality", "Minimum data quality"],
   ["min_team_matches", "Minimum team matches"],
-  ["target_odds_min", "Combined odds minimum"],
-  ["target_odds_max", "Combined odds maximum"],
-  ["max_slip_legs", "Maximum slip legs"],
   ["prediction_time_budget_seconds", "Prediction time budget (seconds)"],
 ] as const;
 

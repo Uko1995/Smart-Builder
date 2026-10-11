@@ -1,53 +1,36 @@
 # Soccer Prediction Lab
 
-Personal football prediction research dashboard. It stores fixtures and odds, estimates probabilities from a transparent baseline model, and can prepare up to three candidate betting slips for manual review.
+Personal football prediction research dashboard. It stores fixtures and odds, estimates probabilities from a transparent baseline model, and ranks the day’s priced high-probability picks. Accumulators are not generated.
 
 The application does not place bets, log in to bookmakers, or scrape bookmaker websites.
 
 ## What works in this revision
 
-- FastAPI backend with PostgreSQL and Alembic migrations.
+- One Next.js / TypeScript app in `frontend/`: dashboard, API routes, prediction engine, provider ingestion and a daily Vercel Cron job. It deploys to Vercel with Neon Postgres; see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 - Health and readiness checks.
 - Single-user session authentication.
 - Canonical market catalogue, including markets that stay unavailable when the data is missing.
 - Poisson scoreline model with an optional Dixon-Coles adjustment.
-- Deterministic slip search that returns fewer than three slips when the evidence requires it.
+- Daily picks board ranked by de-vigged bookmaker probability, with the model as a second opinion.
 - Manual CSV import and an opt-in synthetic demonstration seed.
 - Provider adapters for API-Football, football-data.org, and The Odds API. They stay idle until you add keys.
 
-The Next.js dashboard is in `frontend/`. It signs in through the API, keeps the session cookie on the server, and reads stored fixtures, probabilities, and slips.
+The Next.js dashboard is in `frontend/`. It signs in through the API, keeps the session cookie on the server, and reads stored fixtures, probabilities, and daily picks.
 
-## Local setup without Docker
+## Local setup (Node only)
 
-Requirements: Python 3.12 and PostgreSQL 16.
-
-```bash
-python3 -m venv backend/.venv
-source backend/.venv/bin/activate
-pip install -r backend/requirements-dev.txt
-cp .env.example .env
-```
-
-Edit `.env`. Replace `AUTH_SECRET` and `DASHBOARD_PASSWORD`. Do not commit `.env`.
+Requirements: Node 20+ and PostgreSQL 16.
 
 ```bash
-createdb soccer_prediction_lab
-cd backend
-alembic upgrade head
-uvicorn app.main:app --reload --port 8000
-```
-
-Open `http://127.0.0.1:8000/docs` and `http://127.0.0.1:8000/health`.
-
-In another shell, start the dashboard:
-
-```bash
+cp .env.example .env        # edit AUTH_SECRET and DASHBOARD_PASSWORD
 cd frontend
 npm install
+npm run db:migrate
+npm run history:import      # optional, about ten minutes
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000` and sign in with `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. Generate predictions from the overview. The button does nothing on a schedule.
+Do not commit `.env`. Open `http://127.0.0.1:3000` and sign in with `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD`. Generate predictions from the overview. The button does nothing on a schedule.
 
 Docker Compose can start only the database:
 
@@ -55,29 +38,32 @@ Docker Compose can start only the database:
 docker compose up -d db
 ```
 
+## Historical data
+
+Load 15 seasons of results, corners and cards from football-data.co.uk (no key, about ten minutes):
+
+```bash
+cd frontend
+npm run history:import
+```
+
+The Refresh button on the Data page then keeps the current season, upcoming fixtures and configured odds up to date.
+
 ## Synthetic demonstration data
 
 This data is invented and labelled. It is not a record of real matches or bookmaker prices.
 
 ```bash
-cd backend
-python -m app.cli seed-demo
-python -m app.cli predict --date YYYY-MM-DD
+cd frontend
+npm run cli -- seed-demo
+npm run cli -- predict --date YYYY-MM-DD
 ```
 
 Set `ALLOW_SYNTHETIC=true` in `.env` before a prediction run should include those rows. Production mode refuses the demo seed.
 
 ## Tests
 
-From the repository root, with the virtualenv active and `soccer_prediction_lab_test` created:
-
-```bash
-./scripts/test-backend.sh
-```
-
-The suite creates the test database schema itself when `DATABASE_URL` points at a database your user can migrate. `scripts/test-backend.sh` points pytest at the local test database.
-
-Frontend checks, from `frontend/`:
+From `frontend/`:
 
 ```bash
 npm run typecheck
@@ -92,7 +78,7 @@ npm test
 - [Data sources](docs/DATA_SOURCES.md)
 - [Market coverage](docs/MARKET_COVERAGE.md)
 - [Model methodology](docs/MODEL_METHODOLOGY.md)
-- [Slip optimization](docs/SLIP_OPTIMIZATION.md)
+- [Daily picks](docs/SLIP_OPTIMIZATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Environment variables](docs/ENVIRONMENT_VARIABLES.md)
 - [Testing](docs/TESTING.md)

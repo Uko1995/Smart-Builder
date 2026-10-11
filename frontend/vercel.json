@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/daily?steps=fixtures,settle,prune", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/daily?steps=odds,predict", "schedule": "0 10 * * *" }
+  ]
+}

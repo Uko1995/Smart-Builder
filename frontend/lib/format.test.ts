@@ -22,7 +22,7 @@ describe("formatters", () => {
     expect(runStatusLabel("succeeded_with_warnings").tone).toBe("warn");
     expect(runStatusLabel("failed").tone).toBe("bad");
     expect(runStatusLabel("insufficient_data").label).toBe("Insufficient data");
-    expect(runStatusLabel("no_qualifying_slips").label).toBe("No qualifying slips");
+    expect(runStatusLabel("no_qualifying_slips").label).toBe("Older accumulator run");
     expect(runStatusLabel(null).tone).toBe("idle");
   });
 });

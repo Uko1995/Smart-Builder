@@ -1,5 +1,7 @@
 # Implementation plan
 
+> Historical. The FastAPI/SQLAlchemy service described below was later ported to TypeScript in `frontend/server/` and removed. See `ARCHITECTURE.md`.
+
 Assessment date: 2026-10-09.
 
 ## Repository assessment

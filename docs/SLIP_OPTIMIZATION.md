@@ -1,30 +1,17 @@
-# Slip optimization
+# Daily picks (accumulators retired)
 
-The search is a deterministic beam. It returns zero, one, two, or three slips. It does not add a slip to fill the dashboard.
+The dashboard no longer builds 10–30 combined-odds slips. Those accumulators ranked longshots and stacked independent legs, so the joint win chance was far below the per-leg percentages.
 
-## Strategies
+Daily picks are single priced selections from the latest prediction run for the chosen UTC date.
 
-| Strategy | Minimum probability | Ranked by |
-| --- | --- | --- |
-| Probability-led | 0.40 | Joint probability |
-| Balanced value | 0.28 | Estimated value |
-| Higher odds | 0.18 | Combined decimal odds |
+## Ranking
 
-Defaults can be changed in Data and settings. The floors must stay A ≥ B ≥ C.
+1. Model probability at least `MIN_PICK_PROBABILITY` (default 0.50).
+2. A stored bookmaker price of 1.20 or higher, still inside the freshness window.
+3. Markets: match result, double chance, BTTS, over/under 1.5/2.5/3.5, draw no bet, half-goal Asian handicap.
+4. Excluded as trivia: Over 0.5, Under 4.5, team totals, correct scores, corners/cards, odds below 1.20.
+5. Ranked by de-vigged implied probability, then model probability.
 
-## Constraints
+A disagreement flag is shown when |model − implied| > 0.15. A conservative badge is shown when both are at least 0.60.
 
-- Combined decimal odds must fall in 10.00–30.00.
-- At most `MAX_SLIP_LEGS` selections, default 5.
-- Beam width default 30.
-- At most two goal-market legs from the same match. Their joint probability comes from the shared scoreline grid.
-- Same-match mixes that are not both goal markets are rejected.
-- Selections from different matches are multiplied as if independent. The slip warning says that this is an assumption.
-- Draw no bet, integer Asian handicap, and half-time/full-time are excluded.
-- A price older than the freshness window is rejected. Another bookmaker is not substituted.
-- Mapping status `mapping_required` does not enter the search. Manual prices can.
-- A later strategy is dropped when its selection set has Jaccard overlap of 0.5 or more with an earlier slip. The omitted reason is stored on the slip diagnostics.
-
-Expected value is `joint probability * combined odds - 1`. The slip records whether that value is estimated and repeats that it depends on calibration and an executable price.
-
-The same inputs and config produce the same slips. Tests cover a three-slip case, a one-slip case, stale rejection, and that determinism.
+The bookmaker-implied probability is the primary ranking signal. The Poisson model is a second opinion and is not claimed to beat closing lines.

@@ -1,44 +1,25 @@
-export type SlipSelection = {
-  position: number;
+export type DailyPick = {
   fixture_id: number | null;
   match: string | null;
+  home: string | null;
+  away: string | null;
+  league: string | null;
   kickoff_at: string | null;
-  market_key: string | null;
+  market_key: string;
   market_name: string | null;
-  selection: string | null;
+  selection: string;
   line: string | null;
-  probability: string | null;
-  fair_odds: string | null;
-  decimal_odds: string | null;
+  model_probability: string;
+  implied_probability: string;
+  decimal_odds: string;
   captured_at: string | null;
-  bookmaker_key: string | null;
-  bookmaker_name: string | null;
-  mapping_status: string | null;
-  data_origin: string | null;
-  rationale: string;
-  odds_changed: boolean;
-  latest_decimal_odds: string | null;
-};
-
-export type Slip = {
-  public_id: string;
-  strategy: string;
-  label: string;
-  combined_odds: string | null;
-  selection_count: number;
-  joint_probability: string | null;
-  joint_probability_method: string;
-  expected_value: string | null;
-  ev_status: string;
-  preparation_status: string;
-  review_status: string;
-  review_note: string | null;
-  booking_code: string | null;
-  booking_bookmaker: string | null;
-  warnings: string[];
-  diagnostics: { omitted?: Record<string, string>; note?: string };
-  selections: SlipSelection[];
-  disclaimer: string;
+  bookmaker: string | null;
+  data_quality: string | null;
+  sample_size: number;
+  sample_note: string;
+  disagreement: boolean;
+  conservative: boolean;
+  data_origin: string;
 };
 
 export type PredictionRun = {
@@ -54,7 +35,6 @@ export type PredictionRun = {
   source_data_cutoff: string | null;
   time_budget_seconds: number;
   created?: boolean;
-  slips?: Slip[];
 };
 
 export type FixtureRow = {
@@ -85,7 +65,8 @@ export type Overview = {
   fixtures: FixtureRow[];
   latest_odds_captured_at: string | null;
   latest_run: PredictionRun | null;
-  slips: Slip[];
+  picks: DailyPick[];
+  picks_note?: string;
   warnings: string[];
   recent_performance: { settled_predictions: number; note: string };
   settings?: { allow_synthetic: boolean; odds_freshness_minutes: number };
@@ -101,6 +82,7 @@ export type ExplorerRow = FixtureRow & {
   probability: string | null;
   fair_odds: string | null;
   decimal_odds: string | null;
+  implied_probability: string | null;
   captured_at: string | null;
   bookmaker: string | null;
   implementation_status: string;

@@ -1,4 +1,4 @@
-# Local PostgreSQL only. The Next.js and FastAPI processes run on the host
+# Local PostgreSQL only. The Next.js app runs on the host
 # so a sleeping container is not required for day-to-day development.
 services:
   db:

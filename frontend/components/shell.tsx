@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/markets", label: "Markets" },
-  { href: "/slips", label: "Slip lab" },
-  { href: "/bookmakers", label: "Bookmakers" },
   { href: "/performance", label: "Performance" },
   { href: "/settings", label: "Data" },
 ];
@@ -27,7 +25,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             className="rounded-full border border-line px-3 py-1.5 text-sm text-slate-600"
             onClick={async () => {
               await fetch("/api/auth/logout", { method: "POST" });
-              window.location.href = "/login";
+              window.location.href = "/";
             }}
           >
             Sign out

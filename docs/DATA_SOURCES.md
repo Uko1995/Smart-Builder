@@ -2,6 +2,14 @@
 
 Nothing in this application is filled in when a provider is missing. Counts, prices, and probabilities come from rows that were stored.
 
+## football-data.co.uk
+
+Base URL: `https://football-data.co.uk`. Free CSV files, no key. Twenty-two main European leagues (codes such as `E0`, `SP1`, `D1`) have one file per season with half-time scores, corners, cards and shots. Sixteen extra leagues (`ARG`, `BRA`, `USA` and others) have one file per country with full-time scores only. `fixtures.csv` and `new_league_fixtures.csv` list upcoming matches. Kickoff times are UK local time and are converted to UTC.
+
+`npm run history:import` loads `HISTORY_SEASONS` seasons. A dashboard refresh fetches the current season and the upcoming-fixtures files. Rows are upserted on league, date and team names, so a scheduled fixture becomes completed when its result is published. A scheduled fixture still unplayed seven days after kickoff is marked `unknown`.
+
+Teams keep one identity per country, so a promoted club keeps its history. Strength estimates still use only matches from the fixture's own league.
+
 ## API-Football
 
 Base URL: `https://v3.football.api-sports.io`. The free plan used for this design allows 100 requests per day and 10 per minute. Historical seasons on that plan are limited. The adapter requests fixtures and does not request per-fixture statistics, which would spend extra quota. Calls are skipped when `API_FOOTBALL_KEY` is empty.
@@ -16,7 +24,9 @@ Base URL: `https://api.the-odds-api.com/v4`. The free plan used for this design 
 
 1xBet appears in that feed as `onexbet`. Bet9ja and SportyBet do not. Spreads are stored with mapping status `mapping_required` and are excluded from slips. Outcomes that do not map to a canonical market are counted and not stored.
 
-An odds event is attached to an existing fixture when the normalized team names match and the kickoff is within 90 minutes. An ambiguous match is not guessed. An unmatched event can create an odds-provider fixture, which has no historical results until a fixture provider or a manual import supplies them.
+League-wide markets come from `ODDS_API_MARKETS` (default `h2h,totals`). Per-match markets in `ODDS_API_EVENT_MARKETS` (1xBet prices `btts` and `alternate_totals`) are fetched for the earliest `ODDS_API_MAX_EVENTS` matches in the refresh window, because each match costs credits.
+
+An odds event is attached to a stored fixture whose kickoff is within 90 minutes and whose home and away names are both similar to the feed's names. Similarity allows short forms such as "Man United" and a small alias list for abbreviations. When two fixtures score within 0.15 of each other, the event is treated as ambiguous and not attached. An unmatched event is counted and not stored.
 
 ## Manual CSV
 
@@ -24,7 +34,7 @@ Fixture and odds imports require the columns documented on the Data page. `data_
 
 ## Synthetic demonstration
 
-`python -m app.cli seed-demo` or the Data page button writes a labelled league, six invented teams, two round-robins of completed matches, and upcoming fixtures with demo-book prices. Production refuses the seed. Prediction runs include those fixtures only when `ALLOW_SYNTHETIC` is true.
+`npm run cli -- seed-demo` or the Data page button writes a labelled league, six invented teams, two round-robins of completed matches, and upcoming fixtures with demo-book prices. Production refuses the seed. Prediction runs include those fixtures only when `ALLOW_SYNTHETIC` is true.
 
 ## Refetch windows
 

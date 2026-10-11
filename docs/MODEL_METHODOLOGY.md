@@ -1,12 +1,14 @@
 # Model methodology
 
-Version key: `poisson-dc-v1`. Feature version: `team-strength-v1`.
+Version key: `poisson-dc-v2`. Feature version: `team-strength-v2`. Version 1 had no shrinkage.
 
 This is a transparent baseline. It is not a claim of calibration, and a positive expected value is meaningful only when the model has been checked on settled prices and the displayed odds are still executable.
 
 ## Team strength
 
 Attack and defence are ratios of a team's time-weighted scoring rate to the competition average. The decay constant xi is fixed at 0.005 per day, about a 139-day half-life. It is not tuned on the holdout. Expected goals are clamped to the range 0.05–6. Only matches in the same league that kicked off before the fixture are used.
+
+Each team's home or away scoring and conceding rates are shrunk toward the league average, as if the team had also played eight full-weight average matches (`PRIOR_WEIGHT`). Without this, a promoted side with two recent away games could be rated as a strong favourite away at a title contender. On a walk-forward slice ending October 2025, the value 8 improved the scoreline log score from -2.993 to -2.920, and the both-teams-to-score and over 2.5 log losses from about 0.705 to 0.680 (0.693 is a coin flip).
 
 A team with fewer than `MIN_TEAM_MATCHES` completed matches (default 5) is withheld. Sample quality is `min(1, n / 30)`. The default minimum quality is 0.25, so a side with about eight to ten matches can pass.
 

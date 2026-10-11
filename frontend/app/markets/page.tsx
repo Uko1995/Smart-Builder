@@ -5,24 +5,27 @@ import { FormEvent, useState } from "react";
 import { EmptyState, Odds, Probability } from "@/components/indicators";
 import { QueryView } from "@/components/query-view";
 import { Shell } from "@/components/shell";
-import { formatSigned, formatWhen } from "@/lib/format";
+import { formatWhen } from "@/lib/format";
 import { todayUtc } from "@/lib/scoreline";
 import type { Coverage, ExplorerRow } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
+const MIN_PROBABILITY = 0.5;
+
 export default function MarketsPage() {
   const coverage = useQuery<Coverage>("/api/v1/markets");
   const [filters, setFilters] = useState({
-    scope_date: "",
+    scope_date: todayUtc(),
     market_key: "",
     family: "",
-    bookmaker: "",
     status: "",
-    min_probability: "",
-    min_odds: "",
+    min_probability: String(MIN_PROBABILITY),
+    min_odds: "1.20",
     max_odds: "",
   });
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(
+    `?scope_date=${todayUtc()}&min_probability=${MIN_PROBABILITY}&min_odds=1.20`,
+  );
   const rows = useQuery<{ rows: ExplorerRow[] }>(`/api/v1/explorer${query}`);
 
   function apply(event: FormEvent) {
@@ -31,6 +34,8 @@ export default function MarketsPage() {
     for (const [key, value] of Object.entries(filters)) {
       if (value) params.set(key, value);
     }
+    const floor = Math.max(Number(filters.min_probability) || 0, MIN_PROBABILITY);
+    params.set("min_probability", String(floor));
     const text = params.toString();
     setQuery(text ? `?${text}` : "");
   }
@@ -40,7 +45,8 @@ export default function MarketsPage() {
       <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Market explorer</p>
       <h1 className="text-3xl font-semibold">Stored predictions and prices</h1>
       <p className="mt-3 max-w-3xl text-sm text-slate-600">
-        Rows come from predictions already saved. A missing price stays blank. Another bookmaker is not used to fill it.
+        Priced selections at 50% model probability or higher, excluding trivial lines such as Under 4.5 and Over 0.5.
+        Ranked by de-vigged bookmaker probability, then model probability. A missing price stays blank.
       </p>
       <form className="panel mt-6 grid gap-3 p-4 md:grid-cols-4" onSubmit={apply}>
         <Field label="Date (UTC)" type="date" value={filters.scope_date} onChange={(value) => setFilters({ ...filters, scope_date: value })} />
@@ -56,14 +62,12 @@ export default function MarketsPage() {
           onChange={(value) => setFilters({ ...filters, family: value })}
           options={["goals", "corners", "cards", "player"].map((value) => ({ value, label: value }))}
         />
-        <Select
-          label="Bookmaker"
-          value={filters.bookmaker}
-          onChange={(value) => setFilters({ ...filters, bookmaker: value })}
-          options={["bet9ja", "sportybet", "onexbet", "demo_book"].map((value) => ({ value, label: value }))}
-        />
         <Field label="Status" value={filters.status} onChange={(value) => setFilters({ ...filters, status: value })} />
-        <Field label="Min probability" value={filters.min_probability} onChange={(value) => setFilters({ ...filters, min_probability: value })} />
+        <Field
+          label="Min probability (0.50 or higher)"
+          value={filters.min_probability}
+          onChange={(value) => setFilters({ ...filters, min_probability: value })}
+        />
         <Field label="Min odds" value={filters.min_odds} onChange={(value) => setFilters({ ...filters, min_odds: value })} />
         <Field label="Max odds" value={filters.max_odds} onChange={(value) => setFilters({ ...filters, max_odds: value })} />
         <div className="md:col-span-4 flex gap-2">
@@ -78,12 +82,12 @@ export default function MarketsPage() {
                 scope_date: todayUtc(),
                 market_key: "",
                 family: "",
-                bookmaker: "",
                 status: "",
-                min_probability: "",
-                min_odds: "",
+                min_probability: String(MIN_PROBABILITY),
+                min_odds: "1.20",
                 max_odds: "",
               });
+              setQuery(`?scope_date=${todayUtc()}&min_probability=${MIN_PROBABILITY}&min_odds=1.20`);
             }}
           >
             Fill today’s date
@@ -101,9 +105,9 @@ export default function MarketsPage() {
                   <tr>
                     <th className="px-3 py-2">Match</th>
                     <th className="px-3 py-2">Market</th>
-                    <th className="px-3 py-2">Probability</th>
+                    <th className="px-3 py-2">Book %</th>
+                    <th className="px-3 py-2">Model %</th>
                     <th className="px-3 py-2">Odds</th>
-                    <th className="px-3 py-2">Value</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
                 </thead>
@@ -122,13 +126,15 @@ export default function MarketsPage() {
                         <p className="text-xs text-slate-500">{row.bookmaker || "No price stored"}</p>
                       </td>
                       <td className="px-3 py-2">
+                        <Probability value={row.implied_probability} />
+                      </td>
+                      <td className="px-3 py-2">
                         <Probability value={row.probability} />
                       </td>
                       <td className="px-3 py-2">
                         <Odds value={row.decimal_odds} />
                         <p className="text-xs text-slate-500">{formatWhen(row.captured_at)}</p>
                       </td>
-                      <td className="num px-3 py-2">{formatSigned(row.estimated_value)}</td>
                       <td className="px-3 py-2 text-slate-600">{row.implementation_status.replaceAll("_", " ")}</td>
                     </tr>
                   ))}

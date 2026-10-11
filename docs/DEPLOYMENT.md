@@ -1,31 +1,60 @@
 # Deployment
 
-Checked on 2026-10-09. Recheck the vendor pages before relying on a free quota. This project targets $0 hosting and does not require a credit card, Kubernetes, Redis, Kafka, or an always-on worker.
+The whole application is one Next.js project in `frontend/`. The API, the prediction engine, provider ingestion and the scheduled job run as Vercel serverless functions. Postgres is Neon.
 
-## Local path
+## Local
 
-PostgreSQL 16, the backend virtualenv, and `npm run dev` in `frontend/` are the reliable path. `docker compose up -d db` starts only Postgres when Docker is available. Scientific imports stay in the API process. The prediction CLI is `python -m app.cli predict`.
+```bash
+cd frontend
+npm install
+npm run db:migrate          # applies server/db/migrations/*.sql, safe to re-run
+npm run history:import      # 15 seasons from football-data.co.uk, about ten minutes
+npm run dev
+```
 
-## Suggested free split
+Local runs read the repository-root `.env`. Other commands: `npm run cli -- predict --date 2026-10-10 [--refresh]`, `npm run cli -- daily --steps odds,predict`, `npm run cli -- seed-demo`.
 
-- Neon Postgres free: the notes reviewed on 2026-10-09 cited 100 projects, 1 GB per project, 100 CU-hours, scale-to-zero after 5 minutes, and a 6-hour restore window. Run `alembic upgrade head` against that database from a machine with the repo. Do not use Render’s free Postgres as the store: that offer expired after 30 days in the notes reviewed the same day.
-- Vercel Hobby for `frontend/`. Set the project root to `frontend`. Hobby is personal and non-commercial. Set `BACKEND_URL` to the API origin. The browser calls Next.js, so the API key never reaches the client. Function duration on Hobby was documented around a 300 second maximum; the proxy still has to wait for FastAPI, and public proxy timeout notes around 120 seconds are a reason to keep prediction runs inside the 60 second cap.
-- A free Python web service, such as Render’s free web service, for FastAPI. The notes reviewed on 2026-10-09 described spin-down after 15 minutes, about a minute to wake, an ephemeral disk, 512 MB RAM, 0.1 CPU, and 750 free instance hours per month. `render.yaml` in the repo root targets that shape. If the process is killed during import of pandas or scikit-learn, use the local API instead of pretending the hosted run succeeded.
+## Vercel + Neon (Hobby, free)
 
-`CORS_ORIGINS` must include the Vercel origin if a browser ever calls FastAPI directly. The dashboard does not need that, because the proxy is same-origin.
+1. In Vercel, import the repository and set **Root Directory** to `frontend`.
+2. Storage → add **Neon** from the Marketplace (free plan). It injects `DATABASE_URL`. Use the pooled connection string; the client already disables prepared statements for PgBouncer.
+3. Add environment variables: `AUTH_SECRET` (32+ chars), `ENVIRONMENT=production`, `CRON_SECRET` (32+ chars), `ODDS_API_KEY` and the `ODDS_API_*` settings you use locally. Set `ODDS_FRESHNESS_MINUTES=360` on Hobby so prices from the last cron still count.
+4. From your machine, point at Neon once and load the schema and history:
+
+   ```bash
+   cd frontend
+   DATABASE_URL='<neon url>' npm run db:migrate
+   DATABASE_URL='<neon url>' npm run history:import
+   DATABASE_URL='<neon url>' npm run cli -- seed-user      # copies DASHBOARD_USERNAME/PASSWORD from .env as a hash
+   ```
+
+   Dashboard accounts live in the `users` table, so Vercel does not need the dashboard password. `npm run cli -- set-user --username NAME` adds an account or changes a password (it prompts, hidden).
+
+   Or copy the existing local database instead of re-importing:
+
+   ```bash
+   pg_dump --no-owner --no-acl "$LOCAL_URL" | psql "$NEON_URL"
+   DATABASE_URL="$NEON_URL" npm run db:migrate
+   ```
+
+5. Deploy. `vercel.json` registers two daily cron calls (UTC):
+   - 06:00 `fixtures,settle,prune`: pull results and upcoming fixtures, grade finished picks, delete old unpriced predictions.
+   - 10:00 `odds,predict`: fresh prices, then the day's predictions and picks.
+
+   Hobby runs each cron once a day and may fire anywhere inside the scheduled hour. The **Generate** button on the overview refreshes odds and re-runs predictions on demand.
+
+## Limits to keep in mind
+
+- Function duration: routes declare `maxDuration = 300`. A full day (about 160 fixtures, 15,700 predictions) takes about 5 seconds; a full odds refresh across ten leagues about 30 seconds.
+- Neon free storage is 0.5 GB. Each daily run writes roughly 16k prediction rows; the 06:00 prune keeps only the last `PREDICTION_RETENTION_DAYS` of unpriced rows. Priced, settled predictions are kept for performance tracking.
+- The Odds API charges one credit per market per region per sport. Ten sports with `h2h,totals` is about 20 credits a refresh, plus event-market calls, so one refresh a day is roughly 600+ credits a month. The free tier is 500: on it, trim `ODDS_API_SPORTS` to the leagues you follow, or leave `ODDS_API_EVENT_MARKETS` empty. Each Generate click with refresh costs the same as a cron refresh.
+- The history import is too long for a serverless function. Run it from your machine.
 
 ## Checklist before a hosted login
 
 1. `AUTH_SECRET` is at least 32 characters and is not the example placeholder.
-2. `DASHBOARD_PASSWORD` is at least 12 characters and is not the example placeholder.
-3. `ENVIRONMENT=production` so OpenAPI and the synthetic seed are off.
-4. `ALLOW_SYNTHETIC=false`.
-5. `GET /health` returns ok and `GET /ready` reports the database.
-6. Alembic is at head on the hosted database.
-7. Provider keys, if used, exist only in the host’s environment.
-
-A cold free API host can time out the first request after sleep. The overview shows that failure. It does not mark the run successful.
-
-## What is intentionally absent
-
-No cron, no queue, and no bookmaker login. Phase 7 in `docs/ROADMAP.md` is the upgrade list. The prediction function can be called by a scheduler later without a schema rewrite.
+2. `npm run cli -- seed-user` or `set-user` has created an account in the hosted `users` table.
+3. `ENVIRONMENT=production`, so the synthetic seed is off.
+4. `CRON_SECRET` is set, otherwise the cron route answers 401.
+5. `GET /api/backend/health` returns ok and `GET /api/backend/ready` reports the database.
+6. `npm run db:migrate` has been run against Neon.
