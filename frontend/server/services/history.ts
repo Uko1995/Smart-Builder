@@ -7,6 +7,7 @@
 import type { Settings } from "@/server/config";
 import type { Db } from "@/server/db/client";
 import {
+  AVERAGE_BOOK_KEY,
   currentSeasonStart,
   fetchHistory,
   fetchUpcoming,
@@ -27,14 +28,17 @@ export class CoukStore {
   private seasons = new Map<string, number>();
   private latestSeason = new Map<number, number>();
   private teams = new Map<string, number>();
+  public pricesWritten = 0;
 
   private constructor(
     private db: Db,
     public providerId: number,
+    private averageBookId: number | null,
   ) {}
 
   static async open(db: Db): Promise<CoukStore> {
-    const store = new CoukStore(db, await getProviderId(db, PROVIDER_KEY));
+    const [book] = await db<{ id: number }[]>`SELECT id FROM bookmakers WHERE key = ${AVERAGE_BOOK_KEY}`;
+    const store = new CoukStore(db, await getProviderId(db, PROVIDER_KEY), book?.id ?? null);
     for (const row of await db<{ id: number; external_id: string }[]>`SELECT id, external_id FROM leagues WHERE provider_id = ${store.providerId}`) {
       store.leagues.set(row.external_id, row.id);
     }
@@ -155,7 +159,52 @@ export class CoukStore {
           home_shots_on_target = EXCLUDED.home_shots_on_target, away_shots_on_target = EXCLUDED.away_shots_on_target,
           source = EXCLUDED.source, captured_at = EXCLUDED.captured_at`;
     }
+    await this.storePrices(matches, ids);
     return rows.length;
+  }
+
+  /**
+   * The files carry no timestamp, so captured_at is when a price was first seen.
+   * Unchanged prices are not stored again; that keeps the age honest and the table small.
+   */
+  private async storePrices(matches: CoukMatch[], ids: Map<string, number>): Promise<void> {
+    if (this.averageBookId === null) return;
+    const priced = matches.filter((match) => match.prices.length && ids.has(match.fixture.externalId));
+    if (!priced.length) return;
+    const fixtureIds = priced.map((match) => ids.get(match.fixture.externalId) as number);
+    const latest = new Map<string, string>();
+    for (const row of await this.db<{ fixture_id: number; market_key: string; selection: string; line: string | null; decimal_odds: string }[]>`
+      SELECT DISTINCT ON (fixture_id, market_key, selection, line) fixture_id, market_key, selection, line, decimal_odds
+      FROM odds_snapshots WHERE bookmaker_id = ${this.averageBookId} AND fixture_id IN ${this.db(fixtureIds)}
+      ORDER BY fixture_id, market_key, selection, line, captured_at DESC`) {
+      latest.set(`${row.fixture_id}|${row.market_key}|${row.selection}|${row.line ?? ""}`, Number(row.decimal_odds).toFixed(4));
+    }
+    const now = new Date();
+    const inserts: Record<string, unknown>[] = [];
+    for (const match of priced) {
+      const fixtureId = ids.get(match.fixture.externalId) as number;
+      for (const item of match.prices) {
+        const key = `${fixtureId}|${item.marketKey}|${item.selection}|${item.line === null ? "" : Number(item.line).toFixed(2)}`;
+        if (latest.get(key) === item.decimalOdds) continue;
+        inserts.push({
+          fixture_id: fixtureId,
+          bookmaker_id: this.averageBookId,
+          provider_id: this.providerId,
+          market_key: item.marketKey,
+          selection: item.selection,
+          line: item.line,
+          decimal_odds: item.decimalOdds,
+          captured_at: now,
+          source_timestamp: now,
+          mapping_status: "verified",
+          data_origin: "provider",
+        });
+      }
+    }
+    for (let start = 0; start < inserts.length; start += CHUNK) {
+      const result = await this.db`INSERT INTO odds_snapshots ${this.db(inserts.slice(start, start + CHUNK) as never)} ON CONFLICT DO NOTHING`;
+      this.pricesWritten += result.count;
+    }
   }
 }
 
@@ -182,7 +231,7 @@ export async function importHistory(db: Db, settings: Settings, seasons: number,
   let written = await storeFiles(fetchHistory(main, extra, first, last, null, progress), store);
   written += await storeFiles(fetchUpcoming(main, extra), store);
   const expired = await expireStale(db, store.providerId);
-  return { rows: written, first_season: `${first}/${first + 1}`, leagues: main.length + extra.length, expired };
+  return { rows: written, prices: store.pricesWritten, first_season: `${first}/${first + 1}`, leagues: main.length + extra.length, expired };
 }
 
 /** Fetch the current season and upcoming fixtures. */
@@ -194,5 +243,5 @@ export async function refreshRecent(db: Db, settings: Settings, since: Date): Pr
   let written = await storeFiles(fetchHistory(main, extra, first, season, toDay(since)), store);
   written += await storeFiles(fetchUpcoming(main, extra), store);
   const expired = await expireStale(db, store.providerId);
-  return [written, { expired_scheduled: expired, leagues: main.length + extra.length }];
+  return [written, { expired_scheduled: expired, prices_written: store.pricesWritten, leagues: main.length + extra.length }];
 }

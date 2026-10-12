@@ -11,6 +11,7 @@ import { useQuery } from "@/lib/use-query";
 
 const EDITABLE = [
   ["odds_freshness_minutes", "Odds freshness (minutes)"],
+  ["reference_odds_freshness_hours", "Market-average odds freshness (hours)"],
   ["min_pick_probability", "Minimum pick probability"],
   ["min_data_quality", "Minimum data quality"],
   ["min_team_matches", "Minimum team matches"],

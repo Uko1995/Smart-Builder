@@ -312,6 +312,14 @@ export const BOOKMAKERS: BookmakerSeed[] = [
     notes: "Prices are used only when returned by The Odds API bookmaker key onexbet for a verified market mapping.",
   },
   {
+    key: "market_average",
+    name: "Market average",
+    isSynthetic: false,
+    notes:
+      "Average price across the bookmakers football-data.co.uk tracks, from its upcoming-fixtures files. " +
+      "Published about twice a week, so it is a reference price; check the live price before staking.",
+  },
+  {
     key: "demo_book",
     name: "Demo Book (synthetic)",
     isSynthetic: true,
@@ -327,6 +335,8 @@ export const MAPPINGS: MappingSeed[] = [
   { bookmakerKey: "onexbet", marketKey: "over_under_goals", providerMarketKey: "alternate_totals", status: "verified", notes: "Per-event alternate lines. Only half-goal lines are mapped; quarter and integer lines stay unmapped." },
   { bookmakerKey: "onexbet", marketKey: "btts", providerMarketKey: "btts", status: "verified", notes: "Per-event market with Yes/No outcomes." },
   { bookmakerKey: "onexbet", marketKey: "asian_handicap", providerMarketKey: "spreads", status: "mapping_required", notes: "Soccer spread settlement is not treated as verified." },
+  { bookmakerKey: "market_average", marketKey: "match_result", providerMarketKey: "AvgH/AvgD/AvgA", status: "verified", notes: "football-data.co.uk average home, draw and away prices." },
+  { bookmakerKey: "market_average", marketKey: "over_under_goals", providerMarketKey: "Avg>2.5/Avg<2.5", status: "verified", notes: "Over/under 2.5 goals only. Main-league file only." },
   { bookmakerKey: "bet9ja", marketKey: "match_result", providerMarketKey: "manual", status: "mapping_required", notes: "No documented Bet9ja market feed is configured." },
   { bookmakerKey: "sportybet", marketKey: "match_result", providerMarketKey: "manual", status: "mapping_required", notes: "No documented SportyBet market feed is configured." },
   { bookmakerKey: "demo_book", marketKey: "match_result", providerMarketKey: "synthetic_h2h", status: "verified", notes: "Synthetic demonstration mapping only." },

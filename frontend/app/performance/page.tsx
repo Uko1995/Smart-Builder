@@ -1,11 +1,11 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/indicators";
 import { QueryView } from "@/components/query-view";
 import { Shell } from "@/components/shell";
-import { formatWhen } from "@/lib/format";
-import type { MetricGroup, PerformanceReport } from "@/lib/types";
+import { formatProbability, formatWhen } from "@/lib/format";
+import type { CalibrationReport, HeadToHead, MetricGroup, PerformanceReport } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
 export default function PerformancePage() {
@@ -24,6 +24,7 @@ export default function PerformancePage() {
         <QueryView status={query.status} error={query.error}>
           {report ? (
             <div className="space-y-6">
+              {report.calibration ? <Calibration report={report.calibration} /> : null}
               <Group title="Recorded matches" group={report.settled_real} />
               <Group title="Synthetic demonstration matches" group={report.settled_synthetic} />
               {chart.length === 0 ? (
@@ -87,6 +88,102 @@ export default function PerformancePage() {
         </QueryView>
       </div>
     </Shell>
+  );
+}
+
+function percent(value: number | null): string {
+  return value === null ? "—" : formatProbability(value);
+}
+
+function HeadToHeadLine({ label, otherLabel, result }: { label: string; otherLabel: string; result: HeadToHead }) {
+  if (result.status !== "estimated" || !result.model || !result.other) {
+    return (
+      <li>
+        {label}: needs 20 settled rows with both opinions (have {result.observations}).
+      </li>
+    );
+  }
+  const better = result.model.brier_score <= result.other.brier_score ? "Model" : otherLabel;
+  return (
+    <li>
+      {label} on {result.observations} rows: model Brier {result.model.brier_score.toFixed(4)} vs {otherLabel.toLowerCase()}{" "}
+      {result.other.brier_score.toFixed(4)} · log loss {result.model.log_loss.toFixed(4)} vs {result.other.log_loss.toFixed(4)} ·{" "}
+      <span className="font-medium">{better} closer</span>
+    </li>
+  );
+}
+
+function Calibration({ report }: { report: CalibrationReport }) {
+  const chart = report.buckets.map((bucket) => ({
+    band: `${Math.round(bucket.low * 100)}–${Math.round(bucket.high * 100)}%`,
+    predicted: bucket.mean_probability,
+    actual: bucket.hit_rate,
+    n: bucket.observations,
+  }));
+  return (
+    <section className="panel p-4 text-sm">
+      <h2 className="font-semibold">Calibration: do the percentages come true?</h2>
+      <p className="mt-1 text-slate-600">
+        {report.observations} settled selection(s) in the pick markets. A well-calibrated 70% call wins about 70% of the time. {report.note}
+      </p>
+      <p className="mt-2">
+        Picks (priced, model ≥ {formatProbability(report.min_pick_probability)}): {report.picks.observations} settled · expected{" "}
+        {percent(report.picks.mean_probability)} · actual {percent(report.picks.hit_rate)}
+      </p>
+      {chart.length === 0 ? (
+        <div className="mt-3">
+          <EmptyState title="Nothing settled yet" body="Predictions are graded after their matches finish and a data refresh records the result." />
+        </div>
+      ) : (
+        <div className="mt-4 h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chart}>
+              <CartesianGrid stroke="#e1e7e4" vertical={false} />
+              <XAxis dataKey="band" />
+              <YAxis domain={[0, 1]} tickFormatter={(value) => `${Math.round(Number(value) * 100)}%`} />
+              <Tooltip formatter={(value, name) => [formatProbability(Number(value)), name === "actual" ? "Won" : "Model said"]} />
+              <Legend formatter={(name) => (name === "actual" ? "Won" : "Model said")} />
+              <Bar dataKey="actual" fill="#6b8f3c" radius={[6, 6, 0, 0]} />
+              <Line dataKey="predicted" stroke="#0f766e" strokeWidth={2} dot />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+      <ul className="mt-3 space-y-1">
+        <HeadToHeadLine label="Model vs bookmaker" otherLabel="Bookmaker" result={report.model_vs_market} />
+        <HeadToHeadLine label="Model vs Elo" otherLabel="Elo" result={report.model_vs_elo} />
+      </ul>
+      {Object.keys(report.by_market).length ? (
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-1 pr-4">Market</th>
+                <th className="py-1 pr-4">Settled</th>
+                <th className="py-1 pr-4">Expected</th>
+                <th className="py-1 pr-4">Won</th>
+                <th className="py-1 pr-4">Picks</th>
+                <th className="py-1 pr-4">Picks expected</th>
+                <th className="py-1">Picks won</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(report.by_market).map(([market, row]) => (
+                <tr key={market} className="border-t border-line">
+                  <td className="py-1 pr-4">{market.replaceAll("_", " ")}</td>
+                  <td className="py-1 pr-4">{row.all.observations}</td>
+                  <td className="py-1 pr-4">{percent(row.all.mean_probability)}</td>
+                  <td className="py-1 pr-4">{percent(row.all.hit_rate)}</td>
+                  <td className="py-1 pr-4">{row.picks.observations}</td>
+                  <td className="py-1 pr-4">{percent(row.picks.mean_probability)}</td>
+                  <td className="py-1">{percent(row.picks.hit_rate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

@@ -12,6 +12,7 @@ import {
 
 export type EffectiveSettings = {
   odds_freshness_minutes: number;
+  reference_odds_freshness_hours: number;
   min_pick_probability: number;
   min_data_quality: number;
   min_team_matches: number;
@@ -26,6 +27,7 @@ export type EffectiveSettings = {
 export function settingsPayload(settings: Settings): EffectiveSettings {
   return {
     odds_freshness_minutes: settings.oddsFreshnessMinutes,
+    reference_odds_freshness_hours: settings.referenceOddsFreshnessHours,
     min_pick_probability: settings.minPickProbability,
     min_data_quality: settings.minDataQuality,
     min_team_matches: settings.minTeamMatches,
@@ -51,6 +53,7 @@ export async function effectiveSettings(db: Db, settings: Settings): Promise<Eff
 
 const BOUNDS: Record<string, [number, number, "float" | "int"]> = {
   odds_freshness_minutes: [15, 7 * 24 * 60, "int"],
+  reference_odds_freshness_hours: [6, 14 * 24, "int"],
   min_pick_probability: [0.5, 0.95, "float"],
   min_data_quality: [0, 1, "float"],
   min_team_matches: [3, 50, "int"],

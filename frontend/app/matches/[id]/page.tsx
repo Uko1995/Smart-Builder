@@ -90,6 +90,12 @@ export default function MatchPage() {
                   </ResponsiveContainer>
                 </div>
               )}
+              {detail.model.elo ? (
+                <p className="mt-3 text-sm text-slate-700">
+                  Elo rating opinion: home {formatProbability(detail.model.elo.home)} · draw {formatProbability(detail.model.elo.draw)} · away{" "}
+                  {formatProbability(detail.model.elo.away)}
+                </p>
+              ) : null}
             </section>
             <section>
               <h2 className="text-lg font-semibold">Stored selections</h2>
@@ -115,6 +121,11 @@ export default function MatchPage() {
                         <p className="text-xs text-slate-500">
                           Fair <Odds value={row.fair_odds} />
                         </p>
+                        {row.elo_probability ? (
+                          <p className="text-xs text-slate-500">
+                            Elo <Probability value={row.elo_probability} />
+                          </p>
+                        ) : null}
                       </div>
                     </li>
                   ))}

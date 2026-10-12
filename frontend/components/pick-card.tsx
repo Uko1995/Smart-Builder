@@ -33,7 +33,7 @@ export function PickCard({ pick }: { pick: DailyPick }) {
         {pick.market_name} · {pick.selection}
         {pick.line ? ` · ${pick.line}` : ""}
       </p>
-      <dl className="grid grid-cols-3 gap-3 text-sm">
+      <dl className="grid grid-cols-4 gap-3 text-sm">
         <div>
           <dt className="text-xs uppercase tracking-wide text-slate-500">Book %</dt>
           <dd>
@@ -47,6 +47,12 @@ export function PickCard({ pick }: { pick: DailyPick }) {
           </dd>
         </div>
         <div>
+          <dt className="text-xs uppercase tracking-wide text-slate-500" title="Elo rating opinion, for result markets only">
+            Elo %
+          </dt>
+          <dd>{pick.elo_probability ? <Probability value={pick.elo_probability} /> : <span className="text-slate-400">—</span>}</dd>
+        </div>
+        <div>
           <dt className="text-xs uppercase tracking-wide text-slate-500">Odds</dt>
           <dd>
             <Odds value={pick.decimal_odds} />
@@ -54,7 +60,10 @@ export function PickCard({ pick }: { pick: DailyPick }) {
         </div>
       </dl>
       <p className="text-xs text-slate-500">{pick.sample_note}</p>
-      <p className="text-xs text-slate-500">{pick.bookmaker || "No bookmaker name"} · {formatWhen(pick.captured_at)}</p>
+      <p className="text-xs text-slate-500">
+        {pick.bookmaker || "No bookmaker name"} · {formatWhen(pick.captured_at)}
+        {pick.reference_price ? " · reference price, check the live odds" : ""}
+      </p>
     </article>
   );
 }

@@ -20,6 +20,18 @@ Rho is chosen on a grid from -0.14 to 0.01 in steps of 0.01, using only the last
 
 Corner and card grids use the same Poisson construction with rho 0. Corners stop at 20.
 
+## Elo second opinion
+
+`server/engine/elo.ts` rates clubs from stored results, with one rating pool per league; Club Elo's public fixtures API was deactivated in 2026, so ratings are computed in-house. Each result moves both ratings by K = 20, scaled by the World Football Elo goal-difference multiplier. Home advantage is a fixed 60 points. A team entering a pool starts at the pool's 20th-percentile rating. After a break of more than 60 days, a rating regresses 20% toward the pool mean. A per-league ordered logit, fitted on pre-match rating differences, turns the difference into home, draw and away probabilities. Both teams need 15 pool matches before a probability is given. Prediction runs read about six seasons for Elo.
+
+Elo prices match result, double chance and draw no bet only. It is stored on each prediction as `elo_probability` and shown next to the book and model percentages. It does not change the model probability or the pick ranking.
+
+On the most recent season of stored results (11,548 matches, ratings and logit fitted only on earlier matches), 1X2 log loss was 1.069 for league base rates, 1.027 for the goal model and 1.013 for Elo (Brier 0.646, 0.616, 0.606). A 50/50 blend scored 1.015, so Elo alone was the sharper result-market forecast on that slice.
+
+## Calibration tracking
+
+When a priced prediction is linked to a price, the de-vigged probability of that same bookmaker is stored as `implied_probability`. After settlement, the performance page groups settled pick-market selections (latest prediction per match and selection, synthetic rows excluded) into 10-point probability bands and shows the predicted and actual win rate for each band, the hit rate of rows that would have been picks, and Brier score and log loss for model vs bookmaker and model vs Elo on the same rows. Head-to-head scores are withheld below 20 paired rows.
+
 ## Evaluation
 
 `POST /api/v1/evaluation` walks completed recorded matches in time order and skips synthetic rows. Rho for the final holdout is frozen from earlier matches. Brier score and log loss on the performance page are withheld below 20 settled observations for a group, and below 20 for a market. Simulated unit returns are withheld below 30 priced non-synthetic settlements. The report states the sample size and does not present a return as a betting history.

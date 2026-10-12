@@ -6,6 +6,8 @@ Nothing in this application is filled in when a provider is missing. Counts, pri
 
 Base URL: `https://football-data.co.uk`. Free CSV files, no key. Twenty-two main European leagues (codes such as `E0`, `SP1`, `D1`) have one file per season with half-time scores, corners, cards and shots. Sixteen extra leagues (`ARG`, `BRA`, `USA` and others) have one file per country with full-time scores only. `fixtures.csv` and `new_league_fixtures.csv` list upcoming matches. Kickoff times are UK local time and are converted to UTC.
 
+The upcoming-fixtures files also carry pre-match prices. The app stores the bookmaker averages as the `market_average` bookmaker ("Market average"): `AvgH/AvgD/AvgA` for match result in all 38 leagues, and `Avg>2.5/Avg<2.5` for over/under 2.5 goals in the 22 main leagues. The files are updated about twice a week (Tuesday and Friday) and carry no timestamp, so `captured_at` is when a price was first seen and unchanged prices are not stored again. These are reference prices: picks accept them for `REFERENCE_ODDS_FRESHNESS_HOURS` (default 120), and a fresh live price from The Odds API is always preferred when one exists. Pinnacle columns (`PSH` etc.) are left alone because the site reports them as unreliable since July 2025.
+
 `npm run history:import` loads `HISTORY_SEASONS` seasons. A dashboard refresh fetches the current season and the upcoming-fixtures files. Rows are upserted on league, date and team names, so a scheduled fixture becomes completed when its result is published. A scheduled fixture still unplayed seven days after kickoff is marked `unknown`.
 
 Teams keep one identity per country, so a promoted club keeps its history. Strength estimates still use only matches from the fixture's own league.

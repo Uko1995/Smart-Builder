@@ -74,7 +74,12 @@ export type MatchStats = {
   away_shots_on_target: number | null;
 };
 
-export type CoukMatch = { fixture: NormalizedFixture; stats: MatchStats | null };
+export const AVERAGE_BOOK_KEY = "market_average";
+
+/** One average price from an upcoming-fixtures file. decimalOdds has four decimals; line has two. */
+export type CoukPrice = { marketKey: string; selection: string; line: string | null; decimalOdds: string };
+
+export type CoukMatch = { fixture: NormalizedFixture; stats: MatchStats | null; prices: CoukPrice[] };
 type Row = Record<string, string>;
 type Day = { year: number; month: number; day: number };
 
@@ -174,6 +179,29 @@ function int(row: Row, key: string): number | null {
   return number >= 0 && number <= 99 ? number : null;
 }
 
+function price(row: Row, key: string): string | null {
+  const value = Number(String(row[key] ?? "").trim());
+  return Number.isFinite(value) && value > 1 && value < 1000 ? value.toFixed(4) : null;
+}
+
+/** A market is kept only when every selection has a price, so the margin can be removed. */
+function averagePrices(row: Row): CoukPrice[] {
+  const prices: CoukPrice[] = [];
+  const result = [price(row, "AvgH"), price(row, "AvgD"), price(row, "AvgA")];
+  if (result.every((value) => value !== null)) {
+    (["home", "draw", "away"] as const).forEach((selection, index) =>
+      prices.push({ marketKey: "match_result", selection, line: null, decimalOdds: result[index] as string }),
+    );
+  }
+  const over = price(row, "Avg>2.5");
+  const under = price(row, "Avg<2.5");
+  if (over !== null && under !== null) {
+    prices.push({ marketKey: "over_under_goals", selection: "over", line: "2.50", decimalOdds: over });
+    prices.push({ marketKey: "over_under_goals", selection: "under", line: "2.50", decimalOdds: under });
+  }
+  return prices;
+}
+
 function sum(left: number | null, right: number | null): number | null {
   if (left === null && right === null) return null;
   return (left ?? 0) + (right ?? 0);
@@ -209,6 +237,7 @@ function buildMatch(
   htHome: number | null,
   htAway: number | null,
   stats: MatchStats | null,
+  prices: CoukPrice[] = [],
 ): CoukMatch {
   const completed = homeGoals !== null && awayGoals !== null;
   return {
@@ -232,6 +261,7 @@ function buildMatch(
       dataOrigin: "provider",
     },
     stats: completed ? stats : null,
+    prices: completed ? [] : prices,
   };
 }
 
@@ -239,7 +269,8 @@ export function toDay(date: Date): Day {
   return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
 
-export function parseMainRows(rows: Row[], seasonName: string | null, since: Day | null = null): CoukMatch[] {
+/** withPrices reads the pre-match average odds; only the upcoming-fixtures files are used for that. */
+export function parseMainRows(rows: Row[], seasonName: string | null, since: Day | null = null, withPrices = false): CoukMatch[] {
   const matches: CoukMatch[] = [];
   for (const row of rows) {
     const league = LEAGUE_BY_CODE.get(String(row.Div ?? "").trim());
@@ -279,13 +310,14 @@ export function parseMainRows(rows: Row[], seasonName: string | null, since: Day
         int(row, "HTHG"),
         int(row, "HTAG"),
         stats,
+        withPrices ? averagePrices(row) : [],
       ),
     );
   }
   return matches;
 }
 
-export function parseExtraRows(rows: Row[], league: LeagueInfo | null = null, since: Day | null = null): CoukMatch[] {
+export function parseExtraRows(rows: Row[], league: LeagueInfo | null = null, since: Day | null = null, withPrices = false): CoukMatch[] {
   const matches: CoukMatch[] = [];
   for (const row of rows) {
     const info = league ?? EXTRA_BY_COUNTRY.get(String(row.Country ?? "").trim());
@@ -296,7 +328,9 @@ export function parseExtraRows(rows: Row[], league: LeagueInfo | null = null, si
     if (since && before(day, since)) continue;
     // The upcoming-fixtures file has no season column; the store reuses the league's latest season.
     const season = String(row.Season ?? "").trim();
-    matches.push(buildMatch(info, season, day, String(row.Time ?? ""), home, away, int(row, "HG"), int(row, "AG"), null, null, null));
+    matches.push(
+      buildMatch(info, season, day, String(row.Time ?? ""), home, away, int(row, "HG"), int(row, "AG"), null, null, null, withPrices ? averagePrices(row) : []),
+    );
   }
   return matches;
 }
@@ -334,14 +368,14 @@ export async function* fetchUpcoming(main: LeagueInfo[], extra: LeagueInfo[]): A
   const extraCountries = new Set(extra.map((item) => item.country));
   if (mainCodes.size) {
     const rows = await getCsv("fixtures.csv");
-    if (rows) yield { label: "fixtures.csv", matches: parseMainRows(rows.filter((row) => mainCodes.has(String(row.Div ?? "").trim())), null) };
+    if (rows) yield { label: "fixtures.csv", matches: parseMainRows(rows.filter((row) => mainCodes.has(String(row.Div ?? "").trim())), null, null, true) };
   }
   if (extraCountries.size) {
     const rows = await getCsv("new_league_fixtures.csv");
     if (rows) {
       yield {
         label: "new_league_fixtures.csv",
-        matches: parseExtraRows(rows.filter((row) => extraCountries.has(String(row.Country ?? "").trim()))),
+        matches: parseExtraRows(rows.filter((row) => extraCountries.has(String(row.Country ?? "").trim())), null, null, true),
       };
     }
   }

@@ -37,6 +37,7 @@ const schema = z.object({
   ALLOW_SYNTHETIC: bool.default(false),
   CRON_SECRET: z.string().optional(),
   ODDS_FRESHNESS_MINUTES: z.coerce.number().int().default(180),
+  REFERENCE_ODDS_FRESHNESS_HOURS: z.coerce.number().int().default(120),
   FIXTURE_REFETCH_MINUTES: z.coerce.number().int().default(360),
   ODDS_REFETCH_MINUTES: z.coerce.number().int().default(60),
   PREDICTION_TIME_BUDGET_SECONDS: z.coerce.number().int().default(25),
@@ -73,6 +74,8 @@ export type Settings = {
   allowSynthetic: boolean;
   cronSecret: string | null;
   oddsFreshnessMinutes: number;
+  /** Market-average prices from football-data.co.uk are published about twice a week. */
+  referenceOddsFreshnessHours: number;
   fixtureRefetchMinutes: number;
   oddsRefetchMinutes: number;
   predictionTimeBudgetSeconds: number;
@@ -131,6 +134,7 @@ export function getSettings(): Settings {
     allowSynthetic: env.ALLOW_SYNTHETIC,
     cronSecret: blankToNull(env.CRON_SECRET),
     oddsFreshnessMinutes: env.ODDS_FRESHNESS_MINUTES,
+    referenceOddsFreshnessHours: env.REFERENCE_ODDS_FRESHNESS_HOURS,
     fixtureRefetchMinutes: env.FIXTURE_REFETCH_MINUTES,
     oddsRefetchMinutes: env.ODDS_REFETCH_MINUTES,
     predictionTimeBudgetSeconds: env.PREDICTION_TIME_BUDGET_SECONDS,

@@ -15,11 +15,16 @@ import {
   unitsToString,
   type DerivedEntry,
 } from "@/server/engine/markets";
+import { buildLeagueElo, eloSelectionProbability, type LeagueElo } from "@/server/engine/elo";
 import { MAX_CORNERS, scorelineMatrix } from "@/server/engine/scoreline";
 import { estimateCountRates, estimateGoalRates, selectRho, type HistoricalMatch, type RateEstimate } from "@/server/engine/strengths";
 import { MARKET_BY_KEY, MODEL_VERSION_KEY } from "@/server/markets/registry";
 import { refreshProviders } from "@/server/services/ingestion";
+import { freshnessLimitMs, impliedFor, REFERENCE_BOOKS } from "@/server/services/picks";
 import { effectiveSettings, seedReference, type EffectiveSettings } from "@/server/services/reference";
+
+/** About six seasons, so ratings have settled well before the matches being predicted. */
+const ELO_HISTORY_DAYS = 2190;
 
 export const TERMINAL = new Set(["succeeded", "succeeded_with_warnings", "failed", "insufficient_data", "no_qualifying_slips"]);
 
@@ -171,6 +176,8 @@ type PredictionInsert = {
   sample_size: number;
   implementation_status: string;
   details: string;
+  elo_probability: string | null;
+  implied_probability: string | null;
 };
 
 function names(fixture: FixtureRow): string {
@@ -248,7 +255,36 @@ function toInsert(
     sample_size: sampleSize,
     implementation_status: status,
     details: JSON.stringify(item.details ?? {}),
+    elo_probability: null,
+    implied_probability: null,
   };
+}
+
+/** Elo needs a longer run-in than the goal model, so it reads its own, narrower history. */
+async function loadEloHistory(db: Db, allowSynthetic: boolean, leagueIds: number[], since: Date): Promise<Map<string, HistoricalMatch[]>> {
+  const byLeague = new Map<string, HistoricalMatch[]>();
+  if (!leagueIds.length) return byLeague;
+  const rows = await db<{ id: number; league_id: number; kickoff_at: Date; home_team_id: number; away_team_id: number; home_goals: number; away_goals: number }[]>`
+    SELECT id, league_id, kickoff_at, home_team_id, away_team_id, home_goals, away_goals FROM fixtures
+    WHERE status = 'completed' AND league_id IN ${db(leagueIds)} AND kickoff_at >= ${since}
+      AND home_goals IS NOT NULL AND away_goals IS NOT NULL
+      AND (${allowSynthetic} OR data_origin <> 'synthetic_demo')
+    ORDER BY kickoff_at, id`;
+  for (const row of rows) {
+    const key = String(row.league_id);
+    const list = byLeague.get(key) ?? [];
+    list.push({
+      matchId: String(row.id),
+      leagueId: key,
+      kickoff: row.kickoff_at.getTime(),
+      homeId: String(row.home_team_id),
+      awayId: String(row.away_team_id),
+      homeGoals: row.home_goals,
+      awayGoals: row.away_goals,
+    });
+    byLeague.set(key, list);
+  }
+  return byLeague;
 }
 
 function sideMarkets(
@@ -326,6 +362,9 @@ async function generate(
     rows.push(match);
     historyByLeague.set(match.leagueId, rows);
   }
+  const leagueIds = [...new Set(fixtures.map((item) => item.league_id))];
+  const eloHistory = await loadEloHistory(tx, allowSynthetic, leagueIds, new Date(start.getTime() - ELO_HISTORY_DAYS * 86_400_000));
+  const eloByLeague = new Map<string, LeagueElo>();
   const minMatches = Math.trunc(config.min_team_matches);
   const rhoMin = Math.trunc(config.rho_min_matches);
   const rhoByLeague = new Map<string, number>();
@@ -355,6 +394,8 @@ async function generate(
       continue;
     }
     const matrix = scorelineMatrix(estimate.lambdaHome, estimate.lambdaAway, estimate.rho);
+    if (!eloByLeague.has(leagueKey)) eloByLeague.set(leagueKey, buildLeagueElo(eloHistory.get(leagueKey) ?? [], start.getTime()));
+    const elo = (eloByLeague.get(leagueKey) as LeagueElo).predict(String(fixture.home_team_id), String(fixture.away_team_id), fixture.kickoff_at.getTime());
     const [snapshot] = await tx<{ id: number }[]>`
       INSERT INTO feature_snapshots (model_version_id, fixture_id, training_cutoff, payload)
       VALUES (${model.id}, ${fixture.id}, ${fixture.kickoff_at}, ${tx.json({
@@ -368,14 +409,16 @@ async function generate(
         quality: estimate.quality,
         clamped: estimate.clamped,
         scoreline: matrix.map((row) => row.map((value) => Number(value.toFixed(8)))),
+        elo: elo && { home: Number(elo.home.toFixed(6)), draw: Number(elo.draw.toFixed(6)), away: Number(elo.away.toFixed(6)) },
         data_origin: fixture.data_origin,
       })})
       RETURNING id`;
     const quality = estimate.quality.toFixed(4);
     for (const item of deriveGoalMarkets(matrix)) {
-      predictions.push(
-        toInsert(batchId, fixture.id, model.id, snapshot.id, item, quality, estimate.leagueMatches, MARKET_BY_KEY[item.marketKey].implementationStatus),
-      );
+      const row = toInsert(batchId, fixture.id, model.id, snapshot.id, item, quality, estimate.leagueMatches, MARKET_BY_KEY[item.marketKey].implementationStatus);
+      const eloProbability = elo ? eloSelectionProbability(elo, item.marketKey, item.selection) : null;
+      row.elo_probability = eloProbability === null ? null : eloProbability.toFixed(8);
+      predictions.push(row);
     }
     const missing = sideMarkets(leagueHistory, fixture, minMatches, (items, rates, status) => {
       for (const item of items) {
@@ -395,7 +438,7 @@ async function generate(
     });
     return;
   }
-  const priced = await linkOdds(tx, predictions);
+  const priced = await linkOdds(tx, predictions, config);
   for (let index = 0; index < predictions.length; index += 1000) {
     await tx`INSERT INTO predictions ${tx(predictions.slice(index, index + 1000) as never)}`;
   }
@@ -410,23 +453,58 @@ async function generate(
   });
 }
 
-/** Link each supported prediction to the freshest stored price for the same selection. */
-async function linkOdds(db: Db, predictions: PredictionInsert[]): Promise<number> {
+type PriceCandidate = { id: number; captured: number; fresh: boolean; reference: boolean; bookmakerId: number; odds: number };
+
+/** Fresh live prices first, then fresh reference prices, then whatever is newest. */
+function betterPrice(left: PriceCandidate, right: PriceCandidate): boolean {
+  if (left.fresh !== right.fresh) return left.fresh;
+  if (left.reference !== right.reference) return !left.reference;
+  return left.captured > right.captured;
+}
+
+/** Link each supported prediction to the best stored price for the same selection. */
+async function linkOdds(db: Db, predictions: PredictionInsert[], config: EffectiveSettings): Promise<number> {
   const fixtureIds = [...new Set(predictions.map((item) => item.fixture_id))];
-  const rows = await db<{ id: number; fixture_id: number; market_key: string; selection: string; line: string | null; captured_at: Date }[]>`
-    SELECT id, fixture_id, market_key, selection, line, captured_at FROM odds_snapshots WHERE fixture_id IN ${db(fixtureIds)}`;
-  const latest = new Map<string, { id: number; captured: number }>();
+  const rows = await db<
+    { id: number; fixture_id: number; bookmaker_id: number; market_key: string; selection: string; line: string | null; decimal_odds: string; captured_at: Date; book: string | null }[]
+  >`
+    SELECT o.id, o.fixture_id, o.bookmaker_id, o.market_key, o.selection, o.line, o.decimal_odds, o.captured_at, b.key AS book
+    FROM odds_snapshots o LEFT JOIN bookmakers b ON b.id = o.bookmaker_id
+    WHERE o.fixture_id IN ${db(fixtureIds)}`;
+  const now = Date.now();
+  const best = new Map<string, PriceCandidate>();
+  const latestByBook = new Map<string, { captured: number; odds: number }>();
   for (const row of rows) {
     const key = `${row.fixture_id}|${row.market_key}|${row.selection}|${lineKey(row.line)}`;
-    const current = latest.get(key);
-    if (!current || row.captured_at.getTime() > current.captured) latest.set(key, { id: row.id, captured: row.captured_at.getTime() });
+    const captured = row.captured_at.getTime();
+    const candidate = {
+      id: row.id,
+      captured,
+      fresh: now - captured <= freshnessLimitMs(row.book, config),
+      reference: REFERENCE_BOOKS.has(row.book ?? ""),
+      bookmakerId: row.bookmaker_id,
+      odds: Number(row.decimal_odds),
+    };
+    const current = best.get(key);
+    if (!current || betterPrice(candidate, current)) best.set(key, candidate);
+    const bookKey = `${row.fixture_id}|${row.bookmaker_id}|${row.market_key}|${lineKey(row.line)}|${row.selection}`;
+    const previous = latestByBook.get(bookKey);
+    if (!previous || captured > previous.captured) latestByBook.set(bookKey, { captured, odds: candidate.odds });
+  }
+  const groups = new Map<string, Map<string, number>>();
+  for (const [bookKey, value] of latestByBook) {
+    const cut = bookKey.lastIndexOf("|");
+    const group = groups.get(bookKey.slice(0, cut)) ?? new Map<string, number>();
+    group.set(bookKey.slice(cut + 1), value.odds);
+    groups.set(bookKey.slice(0, cut), group);
   }
   let priced = 0;
   for (const prediction of predictions) {
     if (prediction.implementation_status !== "supported") continue;
-    const match = latest.get(`${prediction.fixture_id}|${prediction.market_key}|${prediction.selection}|${lineKey(prediction.line)}`);
+    const match = best.get(`${prediction.fixture_id}|${prediction.market_key}|${prediction.selection}|${lineKey(prediction.line)}`);
     if (!match) continue;
     prediction.odds_snapshot_id = match.id;
+    prediction.implied_probability = impliedFor(prediction.fixture_id, match.bookmakerId, prediction.market_key, prediction.line, match.odds, groups).toFixed(8);
     priced += 1;
   }
   return priced;

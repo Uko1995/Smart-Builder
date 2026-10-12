@@ -10,10 +10,13 @@ export type DailyPick = {
   selection: string;
   line: string | null;
   model_probability: string;
+  /** Elo rating opinion. Only for match result, double chance and draw no bet. */
+  elo_probability?: string | null;
   implied_probability: string;
   decimal_odds: string;
   captured_at: string | null;
   bookmaker: string | null;
+  reference_price?: boolean;
   data_quality: string | null;
   sample_size: number;
   sample_note: string;
@@ -80,6 +83,7 @@ export type ExplorerRow = FixtureRow & {
   selection: string;
   line: string | null;
   probability: string | null;
+  elo_probability?: string | null;
   fair_odds: string | null;
   decimal_odds: string | null;
   implied_probability: string | null;
@@ -141,11 +145,13 @@ export type MatchDetail = {
     available: boolean;
     model_version: string | null;
     scoreline: number[][] | null;
+    elo?: { home: number; draw: number; away: number } | null;
     predictions: Array<{
       market_key: string;
       selection: string;
       line: string | null;
       probability: string | null;
+      elo_probability?: string | null;
       fair_odds: string | null;
       implementation_status: string;
       data_quality: string | null;
@@ -167,9 +173,31 @@ export type MetricGroup = {
   by_market?: Record<string, { status: string; observations: number; brier_score?: number; log_loss?: number }>;
 };
 
+export type HitRate = { observations: number; mean_probability: number | null; hit_rate: number | null };
+
+export type HeadToHead = {
+  status: string;
+  observations: number;
+  model?: { brier_score: number; log_loss: number };
+  other?: { brier_score: number; log_loss: number };
+};
+
+export type CalibrationReport = {
+  status: string;
+  observations: number;
+  min_pick_probability: number;
+  buckets: Array<HitRate & { low: number; high: number }>;
+  picks: HitRate;
+  by_market: Record<string, { all: HitRate; picks: HitRate }>;
+  model_vs_market: HeadToHead;
+  model_vs_elo: HeadToHead;
+  note: string;
+};
+
 export type PerformanceReport = {
   settled_real: MetricGroup;
   settled_synthetic: MetricGroup;
+  calibration?: CalibrationReport;
   evaluation_runs: Array<{
     id: number;
     status: string;

@@ -296,7 +296,7 @@ const ROUTES: Route[] = [
   {
     method: "GET",
     pattern: ["api", "v1", "performance"],
-    handler: async ({ sql }) => performance(sql),
+    handler: async ({ sql, settings }) => performance(sql, settings),
   },
   {
     method: "GET",

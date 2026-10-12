@@ -2,10 +2,10 @@
 
 import type { Settings } from "@/server/config";
 import type { Db } from "@/server/db/client";
-import { brierScore, logLoss, simulateUnitReturns } from "@/server/engine/evaluate";
+import { brierScore, calibrationReport, logLoss, simulateUnitReturns } from "@/server/engine/evaluate";
 import { addDays, iso } from "@/server/http";
 import { MARKET_BY_KEY, MARKETS, marketCatalog } from "@/server/markets/registry";
-import { dailyPicks, impliedFor, isTrivialSelection, latestBatchForDate, latestOddsGroups } from "@/server/services/picks";
+import { dailyPicks, impliedFor, isTrivialSelection, latestBatchForDate, latestOddsGroups, PICK_MARKETS } from "@/server/services/picks";
 import type { BatchRow } from "@/server/services/predictions";
 import { effectiveSettings } from "@/server/services/reference";
 
@@ -156,7 +156,7 @@ export async function fixtureDetail(db: Db, fixtureId: number) {
   let predictions: Record<string, unknown>[] = [];
   if (latest) {
     predictions = await db`
-      SELECT market_key, selection, line, probability, fair_odds, implementation_status, data_quality, sample_size
+      SELECT market_key, selection, line, probability, elo_probability, fair_odds, implementation_status, data_quality, sample_size
       FROM predictions WHERE feature_snapshot_id = ${latest.feature_snapshot_id} ORDER BY id`;
   }
   return {
@@ -173,6 +173,7 @@ export async function fixtureDetail(db: Db, fixtureId: number) {
       available: predictions.length > 0,
       model_version: latest?.version_key ?? null,
       scoreline: latest?.payload?.scoreline ?? null,
+      elo: latest?.payload?.elo ?? null,
       predictions,
       note: "Scoreline cells are model estimates. Form and goals tables are measured historical results.",
     },
@@ -219,12 +220,14 @@ export async function explorer(db: Db, filters: ExplorerFilters, limit = 500) {
       captured_at: Date | null;
       odds_origin: string | null;
       bookmaker: string | null;
+      bookmaker_id: number | null;
+      elo_probability: string | null;
     })[]
   >`
     WITH latest AS (SELECT fixture_id, max(batch_id) AS batch_id FROM predictions GROUP BY fixture_id)
     SELECT f.id, f.kickoff_at, f.status, l.name AS league, h.name AS home, a.name AS away, f.home_goals, f.away_goals, f.data_origin,
-           p.market_key, p.selection, p.line, p.probability, p.fair_odds, p.implementation_status, p.data_quality, m.version_key,
-           o.decimal_odds, o.captured_at, o.data_origin AS odds_origin, b.name AS bookmaker
+           p.market_key, p.selection, p.line, p.probability, p.elo_probability, p.fair_odds, p.implementation_status, p.data_quality, m.version_key,
+           o.decimal_odds, o.captured_at, o.data_origin AS odds_origin, b.name AS bookmaker, o.bookmaker_id
     FROM predictions p
     JOIN latest ON latest.fixture_id = p.fixture_id AND latest.batch_id = p.batch_id
     JOIN fixtures f ON f.id = p.fixture_id
@@ -262,9 +265,10 @@ export async function explorer(db: Db, filters: ExplorerFilters, limit = 500) {
       selection: row.selection,
       line: row.line,
       probability: row.probability,
+      elo_probability: row.elo_probability,
       fair_odds: row.fair_odds,
       decimal_odds: row.decimal_odds,
-      implied_probability: odds === null ? null : impliedFor(row.id, row.market_key, row.line, odds, groups).toFixed(8),
+      implied_probability: odds === null ? null : impliedFor(row.id, row.bookmaker_id, row.market_key, row.line, odds, groups).toFixed(8),
       captured_at: iso(row.captured_at),
       bookmaker: row.bookmaker,
       data_origin: odds === null ? row.data_origin : row.odds_origin,
@@ -309,7 +313,29 @@ function scoreGroup(rows: SettledRow[]) {
   return { status: "estimated", observations: rows.length, by_market: markets };
 }
 
-export async function performance(db: Db) {
+async function calibration(db: Db, settings: Settings) {
+  const config = await effectiveSettings(db, settings);
+  const rows = await db<{ market_key: string; probability: string; implied_probability: string | null; elo_probability: string | null; priced: boolean; outcome: string }[]>`
+    SELECT DISTINCT ON (p.fixture_id, p.market_key, p.selection, p.line)
+           p.market_key, p.probability, p.implied_probability, p.elo_probability, p.odds_snapshot_id IS NOT NULL AS priced, p.outcome
+    FROM predictions p JOIN fixtures f ON f.id = p.fixture_id
+    WHERE p.outcome IN ('won', 'lost') AND p.implementation_status = 'supported' AND p.market_key IN ${db([...PICK_MARKETS])}
+      AND f.data_origin <> 'synthetic_demo'
+    ORDER BY p.fixture_id, p.market_key, p.selection, p.line, p.batch_id DESC`;
+  return calibrationReport(
+    rows.map((row) => ({
+      marketKey: row.market_key,
+      probability: Number(row.probability),
+      implied: row.implied_probability === null ? null : Number(row.implied_probability),
+      elo: row.elo_probability === null ? null : Number(row.elo_probability),
+      priced: row.priced,
+      won: row.outcome === "won",
+    })),
+    Number(config.min_pick_probability),
+  );
+}
+
+export async function performance(db: Db, settings: Settings) {
   const rows = await db<(SettledRow & { fixture_origin: string })[]>`
     SELECT p.market_key, p.probability, p.outcome, o.decimal_odds, o.data_origin AS odds_origin, f.data_origin AS fixture_origin
     FROM predictions p
@@ -325,6 +351,7 @@ export async function performance(db: Db) {
   return {
     settled_real: scoreGroup(real),
     settled_synthetic: scoreGroup(synthetic),
+    calibration: await calibration(db, settings),
     evaluation_runs: evaluations.map((run) => ({ ...run, started_at: iso(run.started_at), finished_at: iso(run.finished_at) })),
     simulated_returns: simulateUnitReturns(
       real

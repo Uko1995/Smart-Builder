@@ -107,6 +107,7 @@ export default function MarketsPage() {
                     <th className="px-3 py-2">Market</th>
                     <th className="px-3 py-2">Book %</th>
                     <th className="px-3 py-2">Model %</th>
+                    <th className="px-3 py-2">Elo %</th>
                     <th className="px-3 py-2">Odds</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
@@ -130,6 +131,9 @@ export default function MarketsPage() {
                       </td>
                       <td className="px-3 py-2">
                         <Probability value={row.probability} />
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.elo_probability ? <Probability value={row.elo_probability} /> : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="px-3 py-2">
                         <Odds value={row.decimal_odds} />

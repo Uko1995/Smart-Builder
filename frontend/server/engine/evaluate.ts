@@ -169,6 +169,76 @@ export function walkForwardEvaluate(
   };
 }
 
+export type CalibrationRow = {
+  marketKey: string;
+  probability: number;
+  implied: number | null;
+  elo: number | null;
+  priced: boolean;
+  won: boolean;
+};
+
+type Score = { brier_score: number; log_loss: number };
+
+function score(probabilities: number[], outcomes: number[]): Score {
+  const clipped = probabilities.map((p) => Math.min(1 - 1e-6, Math.max(1e-6, p)));
+  return { brier_score: brierScore(outcomes, clipped), log_loss: logLoss(outcomes, clipped) };
+}
+
+function hitRate(rows: CalibrationRow[]) {
+  if (!rows.length) return { observations: 0, mean_probability: null, hit_rate: null };
+  return {
+    observations: rows.length,
+    mean_probability: rows.reduce((sum, row) => sum + row.probability, 0) / rows.length,
+    hit_rate: rows.filter((row) => row.won).length / rows.length,
+  };
+}
+
+/** Same rows scored by two sources, so the comparison is fair. Null until there are 20 such rows. */
+function headToHead(rows: CalibrationRow[], other: (row: CalibrationRow) => number | null) {
+  const paired = rows.filter((row) => other(row) !== null);
+  if (paired.length < 20) return { status: "insufficient_data", observations: paired.length };
+  const outcomes = paired.map((row) => (row.won ? 1 : 0));
+  return {
+    status: "estimated",
+    observations: paired.length,
+    model: score(paired.map((row) => row.probability), outcomes),
+    other: score(paired.map((row) => other(row) as number), outcomes),
+  };
+}
+
+/**
+ * Settled-prediction calibration: does a 70% call win about 70% of the time?
+ * Buckets are fixed 10-point bands of model probability. Picks are priced rows at or above the pick threshold.
+ */
+export function calibrationReport(rows: CalibrationRow[], minPickProbability: number) {
+  const buckets = [];
+  for (let low = 0; low < 1; low = Math.round((low + 0.1) * 10) / 10) {
+    const high = Math.round((low + 0.1) * 10) / 10;
+    const inBand = rows.filter((row) => row.probability >= low && (high >= 1 ? row.probability <= 1 : row.probability < high));
+    if (inBand.length) buckets.push({ low, high, ...hitRate(inBand) });
+  }
+  const byMarket: Record<string, unknown> = {};
+  for (const marketKey of [...new Set(rows.map((row) => row.marketKey))].sort()) {
+    const group = rows.filter((row) => row.marketKey === marketKey);
+    byMarket[marketKey] = {
+      all: hitRate(group),
+      picks: hitRate(group.filter((row) => row.priced && row.probability >= minPickProbability)),
+    };
+  }
+  return {
+    status: rows.length >= 20 ? "estimated" : "insufficient_data",
+    observations: rows.length,
+    min_pick_probability: minPickProbability,
+    buckets,
+    picks: hitRate(rows.filter((row) => row.priced && row.probability >= minPickProbability)),
+    by_market: byMarket,
+    model_vs_market: headToHead(rows, (row) => row.implied),
+    model_vs_elo: headToHead(rows, (row) => row.elo),
+    note: "Lower Brier score and log loss are better. Each match and selection is counted once, from its latest prediction.",
+  };
+}
+
 /** Rows without a stored historical price are ignored rather than filled in. */
 export function simulateUnitReturns(rows: { decimalOdds: number | null; won: boolean | null }[]) {
   const usable = rows.filter((row) => row.decimalOdds !== null && row.won !== null);
