@@ -1,25 +1,36 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { BetRecordView, EdgeBacktestView } from "@/components/edge-report";
 import { EmptyState } from "@/components/indicators";
 import { QueryView } from "@/components/query-view";
 import { Shell } from "@/components/shell";
 import { formatProbability, formatWhen } from "@/lib/format";
-import type { CalibrationReport, HeadToHead, MetricGroup, PerformanceReport } from "@/lib/types";
+import type { BetRecord, CalibrationReport, EdgeBacktestSummary, HeadToHead, MetricGroup, PerformanceReport } from "@/lib/types";
 import { useQuery } from "@/lib/use-query";
 
 export default function PerformancePage() {
   const query = useQuery<PerformanceReport>("/api/v1/performance");
+  const bets = useQuery<BetRecord>("/api/v1/bet-record");
+  const edge = useQuery<EdgeBacktestSummary>("/api/v1/edge-backtest");
   const report = query.data;
   const chart = chartRows(report?.settled_real);
 
   return (
     <Shell>
       <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Model performance</p>
-      <h1 className="text-3xl font-semibold">Scores from settled predictions</h1>
+      <h1 className="text-3xl font-semibold">Edge and settled predictions</h1>
       <p className="mt-3 max-w-3xl text-sm text-slate-600">
         Brier score and log loss appear only when a market has enough settled outcomes. Synthetic matches are counted apart from recorded ones.
       </p>
+      <div className="mt-6 space-y-6">
+        <QueryView status={bets.status} error={bets.error}>
+          {bets.data ? <BetRecordView record={bets.data} /> : null}
+        </QueryView>
+        <QueryView status={edge.status} error={edge.error}>
+          {edge.data ? <EdgeBacktestView summary={edge.data} /> : null}
+        </QueryView>
+      </div>
       <div className="mt-6">
         <QueryView status={query.status} error={query.error}>
           {report ? (

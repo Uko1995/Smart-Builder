@@ -21,7 +21,8 @@ Rate limits (login, refresh, generate) are stored in Postgres because serverless
 
 The dashboard pages read those stored payloads:
 
-- Daily overview generates a run and shows the day's priced picks in per-market tabs, then status, fixtures, and provider health.
+- Daily overview generates a run and shows the expected-value board (approved backtest segments only), then status, fixtures, and provider health.
+- Performance leads with the bet record (closing-line value per bet and segment, profit with its interval) and the latest closing-line backtest.
 - Market explorer filters saved predictions from each match's latest run, excludes trivial lines, and ranks by implied then model probability.
 - Match analysis separates measured history from the model scoreline.
 - Performance reports Brier score and log loss only after the sample threshold, with synthetic rows separated.

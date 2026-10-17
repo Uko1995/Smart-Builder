@@ -79,7 +79,37 @@ export const AVERAGE_BOOK_KEY = "market_average";
 /** One average price from an upcoming-fixtures file. decimalOdds has four decimals; line has two. */
 export type CoukPrice = { marketKey: string; selection: string; line: string | null; decimalOdds: string };
 
-export type CoukMatch = { fixture: NormalizedFixture; stats: MatchStats | null; prices: CoukPrice[] };
+/**
+ * One bookmaker's 1X2 and over/under 2.5 prices at one moment. "early" is the
+ * price collected when the file was built (Tuesday or Friday before the match);
+ * "closing" is the last price before kick-off.
+ */
+export type CoukQuote = {
+  book: string;
+  phase: "early" | "closing";
+  home: number | null;
+  draw: number | null;
+  away: number | null;
+  over: number | null;
+  under: number | null;
+  /** Null means "when this file was fetched". */
+  capturedAt: Date | null;
+  estimated: boolean;
+};
+
+/** Stored price history starts here; earlier files lack closing over/under prices. */
+export const PRICE_HISTORY_START = Date.UTC(2019, 6, 1);
+
+/** Column prefixes per book: [1X2 prefix, over/under prefix]. */
+const QUOTE_BOOKS: [string, string, string][] = [
+  ["pinnacle", "PS", "P"],
+  ["bet365", "B365", "B365"],
+  ["market_max", "Max", "Max"],
+  ["market_average", "Avg", "Avg"],
+  ["betfair_exchange", "BFE", "BFE"],
+];
+
+export type CoukMatch = { fixture: NormalizedFixture; stats: MatchStats | null; prices: CoukPrice[]; quotes: CoukQuote[] };
 type Row = Record<string, string>;
 type Day = { year: number; month: number; day: number };
 
@@ -202,6 +232,55 @@ function averagePrices(row: Row): CoukPrice[] {
   return prices;
 }
 
+function rawPrice(row: Row, key: string): number | null {
+  const text = String(row[key] ?? "").trim();
+  if (!text) return null;
+  const value = Number(text);
+  return Number.isFinite(value) && value > 1 && value < 1000 ? value : null;
+}
+
+/** football-data.co.uk collects pre-match odds on Tuesday (13:00 UK) and Friday (17:00 UK); the latest such time before kick-off. */
+export function estimatedCollection(kickoffAt: Date): Date {
+  for (let back = 0; back <= 8; back += 1) {
+    const day = new Date(kickoffAt.getTime() - back * 86_400_000);
+    const weekday = day.getUTCDay();
+    if (weekday !== 2 && weekday !== 5) continue;
+    const candidate = ukLocalToUtc(toDay(day), weekday === 2 ? 13 : 17, 0);
+    if (candidate.getTime() < kickoffAt.getTime()) return candidate;
+  }
+  return new Date(kickoffAt.getTime() - 2 * 86_400_000);
+}
+
+/** All complete quotes on a row. A market is kept only when every selection is priced. */
+export function rowQuotes(row: Row, kickoffAt: Date, phases: ("early" | "closing")[], earlyFetched: boolean): CoukQuote[] {
+  const quotes: CoukQuote[] = [];
+  for (const phase of phases) {
+    const c = phase === "closing" ? "C" : "";
+    for (const [book, oneX2, totals] of QUOTE_BOOKS) {
+      let home = rawPrice(row, `${oneX2}${c}H`);
+      let draw = rawPrice(row, `${oneX2}${c}D`);
+      let away = rawPrice(row, `${oneX2}${c}A`);
+      if (home === null || draw === null || away === null) home = draw = away = null;
+      let over = rawPrice(row, `${totals}${c}>2.5`);
+      let under = rawPrice(row, `${totals}${c}<2.5`);
+      if (over === null || under === null) over = under = null;
+      if (home === null && over === null) continue;
+      quotes.push({
+        book,
+        phase,
+        home,
+        draw,
+        away,
+        over,
+        under,
+        capturedAt: phase === "closing" ? kickoffAt : earlyFetched ? null : estimatedCollection(kickoffAt),
+        estimated: phase === "closing" || !earlyFetched,
+      });
+    }
+  }
+  return quotes;
+}
+
 function sum(left: number | null, right: number | null): number | null {
   if (left === null && right === null) return null;
   return (left ?? 0) + (right ?? 0);
@@ -238,8 +317,16 @@ function buildMatch(
   htAway: number | null,
   stats: MatchStats | null,
   prices: CoukPrice[] = [],
+  source: { row: Row; upcoming: boolean } | null = null,
 ): CoukMatch {
   const completed = homeGoals !== null && awayGoals !== null;
+  const kickoffAt = kickoff(day, timeText);
+  const quotes =
+    source && kickoffAt.getTime() >= PRICE_HISTORY_START
+      ? source.upcoming
+        ? rowQuotes(source.row, kickoffAt, ["early"], true)
+        : rowQuotes(source.row, kickoffAt, ["early", "closing"], false)
+      : [];
   return {
     fixture: {
       providerKey: PROVIDER_KEY,
@@ -248,7 +335,7 @@ function buildMatch(
       leagueName: `${league.country} ${league.name}`,
       country: league.country,
       seasonName,
-      kickoff: kickoff(day, timeText),
+      kickoff: kickoffAt,
       homeExternalId: teamKey(league.country, home),
       homeName: home,
       awayExternalId: teamKey(league.country, away),
@@ -262,6 +349,7 @@ function buildMatch(
     },
     stats: completed ? stats : null,
     prices: completed ? [] : prices,
+    quotes,
   };
 }
 
@@ -311,6 +399,7 @@ export function parseMainRows(rows: Row[], seasonName: string | null, since: Day
         int(row, "HTAG"),
         stats,
         withPrices ? averagePrices(row) : [],
+        { row, upcoming: withPrices },
       ),
     );
   }
@@ -329,7 +418,10 @@ export function parseExtraRows(rows: Row[], league: LeagueInfo | null = null, si
     // The upcoming-fixtures file has no season column; the store reuses the league's latest season.
     const season = String(row.Season ?? "").trim();
     matches.push(
-      buildMatch(info, season, day, String(row.Time ?? ""), home, away, int(row, "HG"), int(row, "AG"), null, null, null, withPrices ? averagePrices(row) : []),
+      buildMatch(info, season, day, String(row.Time ?? ""), home, away, int(row, "HG"), int(row, "AG"), null, null, null, withPrices ? averagePrices(row) : [], {
+        row,
+        upcoming: withPrices,
+      }),
     );
   }
   return matches;

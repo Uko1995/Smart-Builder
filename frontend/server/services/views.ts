@@ -5,7 +5,7 @@ import type { Db } from "@/server/db/client";
 import { brierScore, calibrationReport, logLoss, simulateUnitReturns } from "@/server/engine/evaluate";
 import { addDays, iso } from "@/server/http";
 import { MARKET_BY_KEY, MARKETS, marketCatalog } from "@/server/markets/registry";
-import { dailyPicks, impliedFor, isTrivialSelection, latestBatchForDate, latestOddsGroups, PICK_MARKETS } from "@/server/services/picks";
+import { impliedFor, isTrivialSelection, latestBatchForDate, latestOddsGroups, PICK_MARKETS } from "@/server/services/picks";
 import type { BatchRow } from "@/server/services/predictions";
 import { effectiveSettings } from "@/server/services/reference";
 
@@ -81,7 +81,6 @@ export async function overview(db: Db, settings: Settings, scope: string) {
     const [row] = await db<BatchRow[]>`SELECT * FROM prediction_batches WHERE scope_date = ${scope} ORDER BY started_at DESC LIMIT 1`;
     latestRun = row ?? null;
   }
-  const picks = await dailyPicks(db, settings, scope, null);
   const [settled] = await db<{ count: number }[]>`SELECT count(*)::int AS count FROM predictions WHERE outcome IS NOT NULL`;
   const config = await effectiveSettings(db, settings);
   return {
@@ -97,8 +96,6 @@ export async function overview(db: Db, settings: Settings, scope: string) {
     fixtures: fixtures.map(fixtureSummary),
     latest_odds_captured_at: iso(latestOdds?.latest ?? null),
     latest_run: latestRun === null ? null : batchSummary(latestRun),
-    picks: picks.picks,
-    picks_note: picks.note,
     warnings: latestRun === null ? [] : latestRun.warnings.filter((warning) => !perFixtureWarning(warning)),
     recent_performance: {
       settled_predictions: settled.count,

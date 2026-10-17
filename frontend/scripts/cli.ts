@@ -2,7 +2,9 @@
 
 import { randomUUID } from "node:crypto";
 import dns from "node:dns";
+import { writeFileSync } from "node:fs";
 import net from "node:net";
+import { resolve } from "node:path";
 import readline from "node:readline";
 import { getSettings } from "@/server/config";
 import { closeDb, getDb } from "@/server/db/client";
@@ -10,7 +12,9 @@ import { migrate } from "@/server/db/migrate";
 import { parseDate, todayUtc } from "@/server/http";
 import { ALL_STEPS, runDaily, type DailyStep } from "@/server/services/daily";
 import { seedDemo } from "@/server/services/demo";
+import { renderMarkdown, runEdgeBacktest, storeBacktest } from "@/server/services/backtest";
 import { importHistory } from "@/server/services/history";
+import { runPaperBets } from "@/server/services/paper";
 import { createPredictionRun } from "@/server/services/predictions";
 import { seedReference } from "@/server/services/reference";
 import { countUsers, setUser } from "@/server/services/users";
@@ -94,11 +98,23 @@ async function main() {
       print({ username: result.username, created: result.created, users: await countUsers(sql) });
       break;
     }
+    case "backtest": {
+      const report = await runEdgeBacktest(sql, (line) => console.error(line));
+      const id = await storeBacktest(sql, report);
+      const leagues = await sql<{ id: number; name: string }[]>`SELECT id, name FROM leagues`;
+      const path = option(args, "out") ?? resolve(process.cwd(), "../docs/EDGE_BACKTEST.md");
+      writeFileSync(path, renderMarkdown(report, new Map(leagues.map((league) => [league.id, league.name])), id));
+      print({ backtest_id: id, records: report.records, report: path, multiple_testing: report.multiple_testing, runtime_seconds: report.runtime_seconds });
+      break;
+    }
+    case "paper":
+      print(await runPaperBets(sql, settings, parseDate(option(args, "date")) ?? todayUtc()));
+      break;
     case "seed-demo":
       print(await seedDemo(sql, settings));
       break;
     default:
-      console.error("commands: migrate | seed-reference | import-history [--seasons N] | predict [--date D] [--refresh] | daily [--steps s] [--date D] | seed-demo | seed-user | set-user --username NAME");
+      console.error("commands: migrate | seed-reference | import-history [--seasons N] | predict [--date D] [--refresh] | daily [--steps s] [--date D] | backtest [--out FILE] | paper [--date D] | seed-demo | seed-user | set-user --username NAME");
       process.exitCode = 2;
   }
 }

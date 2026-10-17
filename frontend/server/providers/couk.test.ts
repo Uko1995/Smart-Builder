@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExtraRows, parseMainRows } from "@/server/providers/couk";
+import { estimatedCollection, parseExtraRows, parseMainRows, rowQuotes } from "@/server/providers/couk";
 
 const mainRow = {
   Div: "E0",
@@ -42,5 +42,31 @@ describe("football-data.co.uk average prices", () => {
     const [match] = parseExtraRows([row], null, null, true);
     expect(match.fixture.leagueExternalId).toBe("BRA");
     expect(match.prices.map((item) => item.selection)).toEqual(["home", "draw", "away"]);
+  });
+});
+
+describe("football-data.co.uk per-book quotes", () => {
+  const kickoff = new Date(Date.UTC(2024, 9, 19, 14, 0));
+  const row = {
+    PSH: "2.00", PSD: "3.50", PSA: "4.00", "P>2.5": "1.90", "P<2.5": "1.95",
+    PSCH: "1.95", PSCD: "3.60", PSCA: "4.20", "PC>2.5": "1.85", "PC<2.5": "2.00",
+    B365CH: "1.90", B365CD: "3.50", B365CA: "",
+    BFECH: "1.98", BFECD: "3.70", BFECA: "4.40",
+  };
+
+  it("keeps complete markets per book and phase with closing stamped at kick-off", () => {
+    const quotes = rowQuotes(row, kickoff, ["early", "closing"], false);
+    const keys = quotes.map((quote) => `${quote.book}:${quote.phase}`);
+    expect(keys).toEqual(["pinnacle:early", "pinnacle:closing", "betfair_exchange:closing"]);
+    const closing = quotes.find((quote) => quote.book === "pinnacle" && quote.phase === "closing")!;
+    expect(closing).toMatchObject({ home: 1.95, over: 1.85, under: 2, capturedAt: kickoff, estimated: true });
+    expect(quotes.find((quote) => quote.book === "betfair_exchange")).toMatchObject({ over: null, under: null });
+  });
+
+  it("estimates history collection times and leaves fetched early prices to the fetch time", () => {
+    const saturday = new Date(Date.UTC(2024, 9, 19, 14, 0));
+    expect(estimatedCollection(saturday).toISOString()).toBe("2024-10-18T16:00:00.000Z");
+    const [early] = rowQuotes(row, kickoff, ["early"], true);
+    expect(early).toMatchObject({ capturedAt: null, estimated: false });
   });
 });

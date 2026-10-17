@@ -1,6 +1,6 @@
 # Soccer Prediction Lab
 
-Personal football prediction research dashboard. It stores fixtures and odds, estimates probabilities from a transparent baseline model, and ranks the day’s priced high-probability picks. Accumulators are not generated.
+Personal football prediction research dashboard. It stores fixtures and odds, estimates probabilities from a transparent baseline model, and measures them against the closing market. It recommends a bet only where a walk-forward backtest showed positive closing-line value, and records every recommendation before kick-off. Accumulators are not generated.
 
 The application does not place bets, log in to bookmakers, or scrape bookmaker websites.
 
@@ -11,11 +11,11 @@ The application does not place bets, log in to bookmakers, or scrape bookmaker w
 - Single-user session authentication.
 - Canonical market catalogue, including markets that stay unavailable when the data is missing.
 - Poisson scoreline model with an optional Dixon-Coles adjustment.
-- Daily picks board ranked by de-vigged bookmaker probability, with the model as a second opinion.
+- Expected-value board gated by a closing-line backtest (`npm run cli -- backtest`, results in [docs/EDGE_BACKTEST.md](docs/EDGE_BACKTEST.md)), with an append-only bet record and closing-line value tracking.
 - Manual CSV import and an opt-in synthetic demonstration seed.
 - Provider adapters for API-Football, football-data.org, and The Odds API. They stay idle until you add keys.
 
-The Next.js dashboard is in `frontend/`. It signs in through the API, keeps the session cookie on the server, and reads stored fixtures, probabilities, and daily picks.
+The Next.js dashboard is in `frontend/`. It signs in through the API, keeps the session cookie on the server, and reads stored fixtures, probabilities, expected-value bets and the bet record.
 
 ## Local setup (Node only)
 
@@ -78,7 +78,7 @@ npm test
 - [Data sources](docs/DATA_SOURCES.md)
 - [Market coverage](docs/MARKET_COVERAGE.md)
 - [Model methodology](docs/MODEL_METHODOLOGY.md)
-- [Daily picks](docs/SLIP_OPTIMIZATION.md)
+- [Expected-value board](docs/SLIP_OPTIMIZATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Environment variables](docs/ENVIRONMENT_VARIABLES.md)
 - [Testing](docs/TESTING.md)

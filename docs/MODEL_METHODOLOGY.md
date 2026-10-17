@@ -32,6 +32,18 @@ On the most recent season of stored results (11,548 matches, ratings and logit f
 
 When a priced prediction is linked to a price, the de-vigged probability of that same bookmaker is stored as `implied_probability`. After settlement, the performance page groups settled pick-market selections (latest prediction per match and selection, synthetic rows excluded) into 10-point probability bands and shows the predicted and actual win rate for each band, the hit rate of rows that would have been picks, and Brier score and log loss for model vs bookmaker and model vs Elo on the same rows. Head-to-head scores are withheld below 20 paired rows.
 
+## Edge against the closing line
+
+The closing price is treated as the best available estimate of the true probability. The margin is removed with the power method (`p_i = r_i^k`, with `k` chosen so the probabilities sum to one); the Shin method is also implemented in `server/engine/devig.ts`. The benchmark is Pinnacle's close before 23 July 2025, then Betfair Exchange, then the market-average close.
+
+`npm run cli -- backtest` (`server/services/backtest.ts`) walks forward over every completed match from 2019/20 with a closing benchmark. Test seasons start in 2020/21; 2019/20 only trains the blend. For each match it uses only earlier data: goal rates from the previous 1100 days with rho chosen at each season start, Elo updated match by match with its logit refitted at each season start, and blend weights (`server/engine/edge.ts`, log-linear pool fitted by gradient ascent) fitted on earlier seasons. It reports:
+
+- Log loss of the model, Elo, the blend and the early market against the closing benchmark, by league and market, with paired bootstrap intervals on the difference.
+- A betting rule: one bet per match and market on the highest-EV selection above 5% (2% and 10% as sensitivity), quarter Kelly capped at 5% of a flat 100-unit bankroll, at the best early price across books, at Bet365's early price, or at the best closing price for leagues with no early prices. Profit, ROI and closing-line value come with 1000-sample bootstrap intervals.
+- A market-only control that bets the de-margined early market average. Edge it shows comes from price shopping, not forecasting.
+
+Results are stored in `edge_backtests` and `edge_segments` and written to [EDGE_BACKTEST.md](EDGE_BACKTEST.md). The approval rule for the board is in [SLIP_OPTIMIZATION.md](SLIP_OPTIMIZATION.md).
+
 ## Evaluation
 
 `POST /api/v1/evaluation` walks completed recorded matches in time order and skips synthetic rows. Rho for the final holdout is frozen from earlier matches. Brier score and log loss on the performance page are withheld below 20 settled observations for a group, and below 20 for a market. Simulated unit returns are withheld below 30 priced non-synthetic settlements. The report states the sample size and does not present a return as a betting history.

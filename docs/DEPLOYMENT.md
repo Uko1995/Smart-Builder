@@ -19,6 +19,7 @@ Local runs read the repository-root `.env`. Other commands: `npm run cli -- pred
 1. In Vercel, import the repository and set **Root Directory** to `frontend`.
 2. Storage → add **Neon** from the Marketplace (free plan). It injects `DATABASE_URL`. Use the pooled connection string; the client already disables prepared statements for PgBouncer.
 3. Add environment variables: `AUTH_SECRET` (32+ chars), `ENVIRONMENT=production`, `CRON_SECRET` (32+ chars), `ODDS_API_KEY` and the `ODDS_API_*` settings you use locally. Set `ODDS_FRESHNESS_MINUTES=360` on Hobby so prices from the last cron still count.
+   Each Vercel build runs `vercel-build`, which applies pending migrations to that deployment's `DATABASE_URL` before `next build`, so new code never runs against an older schema. Make sure Vercel's `DATABASE_URL` is the same database as your local `.env`; the Marketplace integration can create a separate, empty one.
 4. From your machine, point at Neon once and load the schema and history:
 
    ```bash
@@ -38,8 +39,8 @@ Local runs read the repository-root `.env`. Other commands: `npm run cli -- pred
    ```
 
 5. Deploy. `vercel.json` registers two daily cron calls (UTC):
-   - 06:00 `fixtures,settle,prune`: pull results and upcoming fixtures, grade finished picks, delete old unpriced predictions.
-   - 10:00 `odds,predict`: fresh prices, then the day's predictions and picks.
+   - 06:00 `fixtures,settle,prune`: pull results and upcoming fixtures, grade finished predictions, delete old unpriced predictions.
+   - 10:00 `odds,predict`: fresh prices, then the day's predictions; any expected-value bets in approved segments are appended to `bet_log`.
 
    Hobby runs each cron once a day and may fire anywhere inside the scheduled hour. The **Generate** button on the overview refreshes odds and re-runs predictions on demand.
 

@@ -160,7 +160,56 @@ export class CoukStore {
           source = EXCLUDED.source, captured_at = EXCLUDED.captured_at`;
     }
     await this.storePrices(matches, ids);
+    await this.storeQuotes(matches, ids);
     return rows.length;
+  }
+
+  public quotesWritten = 0;
+
+  /**
+   * Historical quotes have deterministic timestamps, so re-imports are no-ops.
+   * Quotes from the upcoming-fixtures files are stamped with the fetch time and
+   * skipped when they match the latest stored early quote for that bookmaker.
+   */
+  private async storeQuotes(matches: CoukMatch[], ids: Map<string, number>): Promise<void> {
+    const withQuotes = matches.filter((match) => match.quotes.length && ids.has(match.fixture.externalId));
+    if (!withQuotes.length) return;
+    const fetchedIds = withQuotes.filter((match) => match.quotes.some((quote) => quote.capturedAt === null)).map((match) => ids.get(match.fixture.externalId) as number);
+    const latestEarly = new Map<string, string>();
+    if (fetchedIds.length) {
+      for (const row of await this.db<{ fixture_id: number; bookmaker: string; signature: string }[]>`
+        SELECT DISTINCT ON (fixture_id, bookmaker) fixture_id, bookmaker,
+               concat_ws('|', home, draw, away, over_2_5, under_2_5) AS signature
+        FROM market_prices WHERE phase = 'early' AND fixture_id IN ${this.db(fetchedIds)}
+        ORDER BY fixture_id, bookmaker, captured_at DESC`) {
+        latestEarly.set(`${row.fixture_id}|${row.bookmaker}`, row.signature);
+      }
+    }
+    const now = new Date();
+    const fixed = (value: number | null) => (value === null ? null : value.toFixed(3));
+    const inserts: Record<string, unknown>[] = [];
+    for (const match of withQuotes) {
+      const fixtureId = ids.get(match.fixture.externalId) as number;
+      for (const quote of match.quotes) {
+        const values = { home: fixed(quote.home), draw: fixed(quote.draw), away: fixed(quote.away), over_2_5: fixed(quote.over), under_2_5: fixed(quote.under) };
+        if (quote.capturedAt === null) {
+          const signature = [values.home, values.draw, values.away, values.over_2_5, values.under_2_5].filter((value) => value !== null).join("|");
+          if (latestEarly.get(`${fixtureId}|${quote.book}`) === signature) continue;
+        }
+        inserts.push({
+          fixture_id: fixtureId,
+          bookmaker: quote.book,
+          phase: quote.phase,
+          captured_at: quote.capturedAt ?? now,
+          captured_at_estimated: quote.estimated,
+          ...values,
+        });
+      }
+    }
+    for (let start = 0; start < inserts.length; start += CHUNK) {
+      const result = await this.db`INSERT INTO market_prices ${this.db(inserts.slice(start, start + CHUNK) as never)} ON CONFLICT DO NOTHING`;
+      this.quotesWritten += result.count;
+    }
   }
 
   /**
@@ -231,7 +280,7 @@ export async function importHistory(db: Db, settings: Settings, seasons: number,
   let written = await storeFiles(fetchHistory(main, extra, first, last, null, progress), store);
   written += await storeFiles(fetchUpcoming(main, extra), store);
   const expired = await expireStale(db, store.providerId);
-  return { rows: written, prices: store.pricesWritten, first_season: `${first}/${first + 1}`, leagues: main.length + extra.length, expired };
+  return { rows: written, prices: store.pricesWritten, quotes: store.quotesWritten, first_season: `${first}/${first + 1}`, leagues: main.length + extra.length, expired };
 }
 
 /** Fetch the current season and upcoming fixtures. */
@@ -243,5 +292,5 @@ export async function refreshRecent(db: Db, settings: Settings, since: Date): Pr
   let written = await storeFiles(fetchHistory(main, extra, first, season, toDay(since)), store);
   written += await storeFiles(fetchUpcoming(main, extra), store);
   const expired = await expireStale(db, store.providerId);
-  return [written, { expired_scheduled: expired, prices_written: store.pricesWritten, leagues: main.length + extra.length }];
+  return [written, { expired_scheduled: expired, prices_written: store.pricesWritten, quotes_written: store.quotesWritten, leagues: main.length + extra.length }];
 }

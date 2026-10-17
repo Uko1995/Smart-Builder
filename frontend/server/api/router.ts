@@ -13,7 +13,9 @@ import { enforceRateLimit } from "@/server/rate-limit";
 import { seedDemo } from "@/server/services/demo";
 import { ImportErrorSet, importFixturesCsv, importOddsCsv } from "@/server/services/imports";
 import { refreshProviders } from "@/server/services/ingestion";
-import { dailyPicks } from "@/server/services/picks";
+import { forecastBoard } from "@/server/services/forecasts";
+import { paperReport, runPaperBets } from "@/server/services/paper";
+import { backtestSummary, betRecord, recordBets, valueBoard } from "@/server/services/value";
 import { createPredictionRun, PredictionRequestError, TERMINAL, type BatchRow } from "@/server/services/predictions";
 import { seedReference, updateSettings } from "@/server/services/reference";
 import { recordResult } from "@/server/services/settlement";
@@ -268,6 +270,12 @@ const ROUTES: Route[] = [
         const codes: Record<string, number> = { time_budget_exceeded: 504, ingestion_failed: 502, prediction_failed: 500 };
         throw new ApiError(codes[batch.error_code ?? ""] ?? 500, batch.error_code ?? "failed", batch.error_message ?? "Prediction run failed.");
       }
+      try {
+        await recordBets(sql, settings, scopeDate);
+        await runPaperBets(sql, settings, scopeDate);
+      } catch (error) {
+        console.error("bet record failed", error);
+      }
       return { ...batchSummary(batch), created, request_id: requestId };
     },
   },
@@ -290,8 +298,36 @@ const ROUTES: Route[] = [
   },
   {
     method: "GET",
-    pattern: ["api", "v1", "picks"],
-    handler: async ({ sql, settings, url }) => dailyPicks(sql, settings, parseDate(url.searchParams.get("scope_date")) ?? todayUtc()),
+    pattern: ["api", "v1", "paper"],
+    handler: async ({ sql, settings }) => paperReport(sql, settings),
+  },
+  {
+    method: "POST",
+    pattern: ["api", "v1", "paper", "run"],
+    handler: async ({ sql, settings, url }) => {
+      await enforceRateLimit(sql, "paper", 30, 3600, "Paper betting runs are limited.");
+      return runPaperBets(sql, settings, parseDate(url.searchParams.get("scope_date")) ?? todayUtc());
+    },
+  },
+  {
+    method: "GET",
+    pattern: ["api", "v1", "forecasts"],
+    handler: async ({ sql, url }) => forecastBoard(sql, parseDate(url.searchParams.get("scope_date")) ?? todayUtc()),
+  },
+  {
+    method: "GET",
+    pattern: ["api", "v1", "value-board"],
+    handler: async ({ sql, settings, url }) => valueBoard(sql, settings, parseDate(url.searchParams.get("scope_date")) ?? todayUtc()),
+  },
+  {
+    method: "GET",
+    pattern: ["api", "v1", "bet-record"],
+    handler: async ({ sql }) => betRecord(sql),
+  },
+  {
+    method: "GET",
+    pattern: ["api", "v1", "edge-backtest"],
+    handler: async ({ sql }) => backtestSummary(sql),
   },
   {
     method: "GET",

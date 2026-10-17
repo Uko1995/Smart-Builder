@@ -16,6 +16,7 @@ const EDITABLE = [
   ["min_data_quality", "Minimum data quality"],
   ["min_team_matches", "Minimum team matches"],
   ["prediction_time_budget_seconds", "Prediction time budget (seconds)"],
+  ["bankroll_units", "Bankroll (units) for stake sizing"],
 ] as const;
 
 export default function SettingsPage() {

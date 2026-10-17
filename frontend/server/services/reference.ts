@@ -22,6 +22,7 @@ export type EffectiveSettings = {
   fixture_refetch_minutes: number;
   odds_refetch_minutes: number;
   prediction_history_days: number;
+  bankroll_units: number;
 };
 
 export function settingsPayload(settings: Settings): EffectiveSettings {
@@ -37,6 +38,7 @@ export function settingsPayload(settings: Settings): EffectiveSettings {
     fixture_refetch_minutes: settings.fixtureRefetchMinutes,
     odds_refetch_minutes: settings.oddsRefetchMinutes,
     prediction_history_days: settings.predictionHistoryDays,
+    bankroll_units: 100,
   };
 }
 
@@ -62,6 +64,7 @@ const BOUNDS: Record<string, [number, number, "float" | "int"]> = {
   fixture_refetch_minutes: [30, 7 * 24 * 60, "int"],
   odds_refetch_minutes: [15, 24 * 60, "int"],
   prediction_history_days: [30, 4000, "int"],
+  bankroll_units: [1, 10_000_000, "float"],
 };
 
 export async function updateSettings(db: Db, settings: Settings, changes: Record<string, unknown>): Promise<EffectiveSettings> {

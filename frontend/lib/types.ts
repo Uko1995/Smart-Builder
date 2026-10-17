@@ -1,30 +1,3 @@
-export type DailyPick = {
-  fixture_id: number | null;
-  match: string | null;
-  home: string | null;
-  away: string | null;
-  league: string | null;
-  kickoff_at: string | null;
-  market_key: string;
-  market_name: string | null;
-  selection: string;
-  line: string | null;
-  model_probability: string;
-  /** Elo rating opinion. Only for match result, double chance and draw no bet. */
-  elo_probability?: string | null;
-  implied_probability: string;
-  decimal_odds: string;
-  captured_at: string | null;
-  bookmaker: string | null;
-  reference_price?: boolean;
-  data_quality: string | null;
-  sample_size: number;
-  sample_note: string;
-  disagreement: boolean;
-  conservative: boolean;
-  data_origin: string;
-};
-
 export type PredictionRun = {
   public_id: string;
   scope_date: string;
@@ -68,8 +41,6 @@ export type Overview = {
   fixtures: FixtureRow[];
   latest_odds_captured_at: string | null;
   latest_run: PredictionRun | null;
-  picks: DailyPick[];
-  picks_note?: string;
   warnings: string[];
   recent_performance: { settled_predictions: number; note: string };
   settings?: { allow_synthetic: boolean; odds_freshness_minutes: number };
@@ -229,3 +200,165 @@ export type IngestionRun = {
   started_at: string | null;
   finished_at: string | null;
 };
+
+export type Interval = { estimate: number; low: number; high: number };
+
+export type ValueBet = {
+  fixture_id: number;
+  match: string;
+  league: string | null;
+  kickoff_at: string | null;
+  market: "1x2" | "ou25";
+  selection: string;
+  source: "model" | "elo" | "blend";
+  price_basis: string;
+  segment_key: string;
+  probability: number;
+  price: number;
+  bookmaker: string;
+  price_captured_at: string | null;
+  edge: number;
+  stake_fraction: number;
+  stake_units: number;
+  backtest_clv: Interval | null;
+  backtest_bets: number;
+};
+
+export type ValueBoard = {
+  scope_date: string;
+  threshold: number;
+  bankroll_units: number;
+  backtest: { id: number; created_at: string | null; test_seasons: string[] } | null;
+  approved_segments: Array<{ key: string; bets: number; clv: Interval | null }>;
+  bets: ValueBet[];
+  candidates_checked: number;
+  note: string;
+};
+
+export type BetSummary = {
+  bets: number;
+  with_closing_price: number;
+  clv: Interval | null;
+  settled: number;
+  profit_units: number;
+  roi: Interval | null;
+};
+
+export type BetRecord = {
+  overall: BetSummary;
+  segments: Array<BetSummary & { segment_key: string }>;
+  bets: Array<{
+    id: number;
+    fixture_id: number;
+    match: string;
+    market: string;
+    selection: string;
+    segment_key: string;
+    price: number;
+    bookmaker: string;
+    edge: number;
+    stake_units: number;
+    kickoff_at: string | null;
+    recorded_at: string | null;
+    closing_source: string | null;
+    fair_closing_probability: number | null;
+    clv: number | null;
+    result: "won" | "lost" | null;
+    profit_units: number | null;
+  }>;
+  note: string;
+};
+
+export type EdgeSegment = {
+  segment_key: string;
+  league: string;
+  market: string;
+  source: string;
+  price_basis: string;
+  approved: boolean;
+  bets: number;
+  profit_units: number;
+  roi: Interval | null;
+  clv: Interval | null;
+  confirmation: { bets: number; mean_clv: number | null };
+  control_clv: number | null;
+};
+
+export type EdgeBacktestSummary = {
+  backtest: {
+    id: number;
+    created_at: string | null;
+    config: { test_seasons?: string[]; threshold?: number; confirmation_from?: string; benchmark?: string };
+    multiple_testing: { segments_with_enough_bets: number; expected_false_passes_at_2_5_percent: number; passing_clv_rule: number; beating_control: number; approved: number };
+  } | null;
+  log_loss?: Array<{
+    market_key: string;
+    matches?: number;
+    closing?: number;
+    model?: { matches: number; log_loss: number; minus_closing: Interval | null };
+    elo?: { matches: number; log_loss: number; minus_closing: Interval | null };
+    blend?: { matches: number; log_loss: number; minus_closing: Interval | null };
+    market?: { matches: number; log_loss: number; minus_closing: Interval | null };
+  }>;
+  aggregate?: EdgeSegment[];
+  approved?: EdgeSegment[];
+  leaders?: EdgeSegment[];
+};
+
+export type Forecast = { selection: string; model: number; elo: number | null; market: number | null; best: number };
+
+export type ForecastBoard = {
+  scope_date: string;
+  matches: Array<{
+    fixture_id: number;
+    kickoff_at: string | null;
+    status: string;
+    league: string | null;
+    home: string | null;
+    away: string | null;
+    score: string | null;
+    markets: Record<string, Forecast[]>;
+  }>;
+  note: string;
+};
+
+export type PaperStrategy = {
+  key: string;
+  name: string;
+  rule: string;
+  bets: number;
+  open: number;
+  settled: number;
+  won: number;
+  staked_units: number;
+  profit_units: number;
+  bankroll_units: number;
+  max_drawdown_units: number;
+  roi: Interval | null;
+  clv: Interval | null;
+  with_clv: number;
+  curve: Array<{ at: string | null; bankroll: number }>;
+};
+
+export type PaperBet = {
+  id: number;
+  strategy: string;
+  fixture_id: number;
+  match: string;
+  league: string | null;
+  market: "1x2" | "ou25";
+  selection: string;
+  probability: number;
+  price: number;
+  bookmaker: string;
+  edge: number;
+  stake_units: number;
+  kickoff_at: string | null;
+  recorded_at: string | null;
+  score: string | null;
+  result: "won" | "lost" | null;
+  profit_units: number | null;
+  clv: number | null;
+};
+
+export type PaperReport = { starting_bankroll_units: number; strategies: PaperStrategy[]; bets: PaperBet[]; note: string };

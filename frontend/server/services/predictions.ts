@@ -119,12 +119,16 @@ export async function createPredictionRun(
     return { batch: again, created: false };
   }
   const batchId = inserted[0].id;
-  const started = Date.now();
+  let started = Date.now();
   try {
     if (options.refresh) {
-      const runs = await refreshProviders(sql, settings, { dateFrom: options.scopeDate, dateTo: options.scopeDate, scope: "odds" });
+      // Fixtures too, so a date the scheduled job has not reached yet still has matches to predict.
+      const runs = [
+        ...(await refreshProviders(sql, settings, { dateFrom: addDays(options.scopeDate, -3), dateTo: options.scopeDate, scope: "fixtures" })),
+        ...(await refreshProviders(sql, settings, { dateFrom: options.scopeDate, dateTo: options.scopeDate, scope: "odds" })),
+      ];
       if (runs.some((item) => item.status === "failed")) {
-        const message = "An odds refresh failed, so no prediction batch was produced.";
+        const message = "A data refresh failed, so no prediction batch was produced.";
         await finish(sql, batchId, "failed", {
           errorCode: "ingestion_failed",
           errorMessage: message,
@@ -132,6 +136,9 @@ export async function createPredictionRun(
         });
         throw new PredictionRequestError(502, "ingestion_failed", message, await loadBatch(sql, batchId));
       }
+      // The time budget covers generation only; provider downloads can take most of it on their own.
+      started = Date.now();
+      await sql`UPDATE prediction_batches SET started_at = now() WHERE id = ${batchId}`;
     }
     await sql.begin((tx) => generate(tx, settings, batchId, options.scopeDate, options.leagueId, config, started, budget));
     return { batch: await loadBatch(sql, batchId), created: true };
@@ -143,8 +150,12 @@ export async function createPredictionRun(
       throw new PredictionRequestError(504, "time_budget_exceeded", message, await loadBatch(sql, batchId));
     }
     console.error("prediction run failed", error);
-    const message = "Prediction generation failed before a result could be stored.";
-    await finish(sql, batchId, "failed", { errorCode: "prediction_failed", errorMessage: message });
+    const code = (error as { code?: string }).code;
+    const schemaOutdated = code === "42703" || code === "42P01";
+    const message = schemaOutdated
+      ? "The database schema is older than this version of the app. Run `npm run db:migrate` against this database, or redeploy."
+      : "Prediction generation failed before a result could be stored.";
+    await finish(sql, batchId, "failed", { errorCode: schemaOutdated ? "schema_outdated" : "prediction_failed", errorMessage: message });
     throw new PredictionRequestError(500, "prediction_failed", message, await loadBatch(sql, batchId));
   }
 }

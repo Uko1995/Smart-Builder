@@ -9,12 +9,13 @@ const TONE: Record<RunTone, string> = {
   muted: "bg-slate-100 text-slate-700",
 };
 
-export function RunStatus({ status }: { status: string | null | undefined }) {
+export function RunStatus({ status, error }: { status: string | null | undefined; error?: string | null }) {
   const view = runStatusLabel(status);
   return (
     <div className={`rounded-2xl px-4 py-3 ${TONE[view.tone]}`}>
       <p className="text-sm font-semibold">{view.label}</p>
       <p className="text-sm">{view.detail}</p>
+      {error ? <p className="mt-1 text-sm">Reason: {error}</p> : null}
     </div>
   );
 }

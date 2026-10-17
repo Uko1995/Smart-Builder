@@ -7,6 +7,8 @@ import { refreshProviders, type RefreshScope } from "@/server/services/ingestion
 import { createPredictionRun, PredictionRequestError, pruneOldPredictions } from "@/server/services/predictions";
 import { seedReference } from "@/server/services/reference";
 import { settleCompleted } from "@/server/services/settlement";
+import { runPaperBets } from "@/server/services/paper";
+import { recordBets } from "@/server/services/value";
 
 export type DailyStep = "fixtures" | "odds" | "predict" | "settle" | "prune";
 
@@ -32,6 +34,8 @@ export async function runDaily(sql: Sql, settings: Settings, steps: DailyStep[] 
         timeBudgetSeconds: settings.predictionTimeBudgetCapSeconds,
       });
       report.prediction = { public_id: batch.public_id, status: batch.status, diagnostics: batch.diagnostics };
+      report.bets_recorded = await recordBets(sql, settings, scope);
+      report.paper = await runPaperBets(sql, settings, scope);
     } catch (error) {
       if (!(error instanceof PredictionRequestError)) throw error;
       report.prediction = { status: "failed", code: error.code, message: error.message };

@@ -12,8 +12,8 @@ Copy `.env.example` to `.env`. The filled file is gitignored. Placeholders are r
 | `ALLOW_SYNTHETIC` | Include labelled synthetic fixtures in prediction runs. |
 | `CRON_SECRET` | Bearer token Vercel Cron sends to `/api/cron/daily`. Required for the scheduled job. |
 | `PREDICTION_RETENTION_DAYS` | Unpriced predictions older than this are pruned by the daily job. Default 21. |
-| `ODDS_FRESHNESS_MINUTES` | Maximum age of a live price that may appear on the daily picks board. Default 180. |
-| `REFERENCE_ODDS_FRESHNESS_HOURS` | Maximum age of a football-data.co.uk market-average price on the picks board. Those files update about twice a week. Default 120. |
+| `ODDS_FRESHNESS_MINUTES` | Maximum age of a live price the expected-value board may use. Default 180. |
+| `REFERENCE_ODDS_FRESHNESS_HOURS` | Maximum age of a football-data.co.uk upcoming-file price (early prices and market average) the expected-value board may use. Those files update about twice a week. Default 120. |
 | `FIXTURE_REFETCH_MINUTES` | Skip an identical fixture fetch inside this window. Default 360. |
 | `ODDS_REFETCH_MINUTES` | Skip an identical odds fetch inside this window. Default 60. |
 | `PREDICTION_TIME_BUDGET_SECONDS` | Default run budget. Default 25. |

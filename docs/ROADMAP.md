@@ -14,11 +14,10 @@ A free or local scheduler can call `create_prediction_run` with an idempotency k
 - A paid odds feed that includes Bet9ja or SportyBet, with an explicit market mapping before a pick is treated as executable.
 - Corner, card, and first-half markets for competitions that do not yet have count history. The model path already exists; the gate is the sample.
 
-## Model work that stays out of the live picks board until it is measured
+## Model work that stays off the expected-value board until the backtest approves it
 
 - A richer Dixon-Coles likelihood, or a second model version stored beside `poisson-dc-v2`.
-- Calibration plots with sample sizes, using the evaluation run that already skips synthetic rows.
-- Closing-line comparison, only when the captured historical price is the closing price. A later snapshot is not labelled closing unless the provider says so.
+- Any new data source or market. The closing-line backtest ([EDGE_BACKTEST.md](EDGE_BACKTEST.md)) has to show where an edge exists first.
 
 ## Explicitly out of scope
 
